@@ -3,7 +3,7 @@ import type { Patient, PatientInput } from '../types/patient'
 import { PatientStatus } from '../types/enums'
 import { today } from '../utils/date'
 import { determinePatientStatus } from '../engine/state-machine'
-import { generateTasksForPatient } from '../engine/task-generator'
+import { generateTasksForPatient, generateDailyTasks } from '../engine/task-generator'
 
 export async function getAllPatients(): Promise<Patient[]> {
   return db.patients
@@ -68,6 +68,8 @@ export async function updatePatient(id: number, input: PatientInput): Promise<vo
     ...input,
     updatedAt: now,
   })
+  // 保存后立即刷新所有患者的任务状态
+  await generateDailyTasks()
 }
 
 export async function deletePatient(id: number): Promise<void> {
@@ -96,4 +98,10 @@ export async function unarchivePatient(id: number): Promise<void> {
     status: newStatus,
     updatedAt: now,
   })
+
+  // 恢复后立即重新生成该患者的当天任务
+  const updatedPatient = await db.patients.get(id)
+  if (updatedPatient) {
+    await generateTasksForPatient(updatedPatient as Patient)
+  }
 }

@@ -12,16 +12,15 @@ interface ResidentScheduleDB extends Dexie {
 
 const db = new Dexie('ResidentScheduleDB') as ResidentScheduleDB
 
-db.version(2).stores({
+db.version(6).stores({
   patients: '++id, status, isArchived, admissionDate',
   tasks: '++id, patientId, date, status, [patientId+date]',
   taskTemplates: '++id, key, patientStatus, weekday, surgeryPhase',
 }).upgrade(async tx => {
-  // 清理 v1 旧数据（isArchived 为 boolean 的记录无法被 number 查询匹配）
+  // 清理 v2 旧数据，确保多状态模型一致性
   await tx.table('patients').clear()
   await tx.table('tasks').clear()
   await tx.table('taskTemplates').clear()
-  // 重新填充种子数据
   await tx.table('taskTemplates').bulkAdd(seedTaskTemplates)
 })
 

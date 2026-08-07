@@ -35,7 +35,16 @@ export function isWeekend(iso: string): boolean {
   return d === 0 || d === 6
 }
 
+import { getOverrideDate } from './devmode'
+
 export function today(): string {
+  const override = getOverrideDate()
+  if (override) return override
+  return toISODate(new Date())
+}
+
+/** 获取系统真实日期（不受开发模式影响） */
+export function realToday(): string {
   return toISODate(new Date())
 }
 

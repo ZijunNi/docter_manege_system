@@ -7,7 +7,7 @@ import { TaskList } from '../task/TaskList'
 import { LoadingSpinner } from '../ui/LoadingSpinner'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { toggleTaskComplete } from '../../services/task-service'
-import { archivePatient, deletePatient } from '../../services/patient-service'
+import { archivePatient, unarchivePatient, deletePatient } from '../../services/patient-service'
 import { formatDisplayDate, daysAfterAdmission, today } from '../../utils/date'
 
 interface PatientDetailProps {
@@ -30,6 +30,12 @@ export function PatientDetail({ patient }: PatientDetailProps) {
     if (!patient.id) return
     await archivePatient(patient.id)
     navigate('/')
+  }
+
+  const handleUnarchive = async () => {
+    if (!patient.id) return
+    await unarchivePatient(patient.id)
+    navigate(`/patient/${patient.id}`)
   }
 
   const handleDelete = async () => {
@@ -94,7 +100,14 @@ export function PatientDetail({ patient }: PatientDetailProps) {
         >
           ✏️ 编辑
         </button>
-        {!patient.isArchived && (
+        {patient.isArchived ? (
+          <button
+            onClick={handleUnarchive}
+            className="flex-1 py-2 text-sm font-medium text-green-600 bg-green-50 rounded-lg hover:bg-green-100 transition-colors"
+          >
+            📤 取消归档
+          </button>
+        ) : (
           <button
             onClick={() => setShowArchiveDialog(true)}
             className="flex-1 py-2 text-sm font-medium text-amber-600 bg-amber-50 rounded-lg hover:bg-amber-100 transition-colors"

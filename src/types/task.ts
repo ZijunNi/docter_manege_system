@@ -13,4 +13,5 @@ export interface Task {
   completedAt?: number
   createdAt: number
   order: number
+  templateKey?: string
 }

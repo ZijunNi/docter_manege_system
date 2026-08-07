@@ -16,4 +16,5 @@ export interface TaskTemplate {
   dayOffsetFromDischarge: number | null
   order: number
   isActive: boolean
+  isOnceOnly: boolean
 }

@@ -1,58 +1,46 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { generateDailyTasks } from '../engine/task-generator'
-import { today } from '../utils/date'
-
-const LAST_REFRESH_KEY = 'lastDailyRefreshDate'
 
 export function useDailyRefresh(): {
   isRefreshing: boolean
-  lastRefreshDate: string | null
   refreshNow: () => Promise<void>
 } {
   const [isRefreshing, setIsRefreshing] = useState(false)
-  const [lastRefreshDate, setLastRefreshDate] = useState<string | null>(
-    () => localStorage.getItem(LAST_REFRESH_KEY)
-  )
+  const refreshingRef = useRef(false)
 
   const doRefresh = useCallback(async () => {
+    // 防止并发刷新（React StrictMode 会双重调用 useEffect）
+    if (refreshingRef.current) return
+    refreshingRef.current = true
     setIsRefreshing(true)
     try {
       await generateDailyTasks()
-      const todayStr = today()
-      localStorage.setItem(LAST_REFRESH_KEY, todayStr)
-      setLastRefreshDate(todayStr)
     } catch (err) {
       console.error('Daily refresh failed:', err)
     } finally {
+      refreshingRef.current = false
       setIsRefreshing(false)
     }
   }, [])
 
+  // 每次进入首页时自动刷新
   useEffect(() => {
-    const todayStr = today()
+    doRefresh()
+  }, [doRefresh])
 
-    // 首次加载时检查是否需要刷新
-    if (lastRefreshDate !== todayStr) {
-      doRefresh()
-    }
-
-    // 从后台切回前台时检查
+  // 从后台切回前台时也刷新
+  useEffect(() => {
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
-        const currentDate = today()
-        if (localStorage.getItem(LAST_REFRESH_KEY) !== currentDate) {
-          doRefresh()
-        }
+        doRefresh()
       }
     }
-
     document.addEventListener('visibilitychange', handleVisibility)
     return () => document.removeEventListener('visibilitychange', handleVisibility)
-  }, [lastRefreshDate, doRefresh])
+  }, [doRefresh])
 
   return {
     isRefreshing,
-    lastRefreshDate,
     refreshNow: doRefresh,
   }
 }
