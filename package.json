@@ -5,9 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build --base=/docter_manege_system/",
+    "build:local": "vite build --base=/",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "preview:local": "npm run build:local && vite preview --host"
   },
   "dependencies": {
     "dexie": "^4.4.4",

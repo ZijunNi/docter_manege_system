@@ -4,31 +4,31 @@ import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
+  base: '/',
   plugins: [
     react(),
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
       workbox: {
-        globPatterns: ['**/*.{js,css,ico,png,svg,woff2}'],
+        // 预缓存所有构建产物（含 index.html），安装 SW 时一次性缓存完毕
+        globPatterns: ['**/*.{js,css,ico,png,svg,woff2,html}'],
         cleanupOutdatedCaches: true,
+        // SPA 回退：所有导航请求离线时返回 index.html
+        navigateFallback: 'index.html',
         runtimeCaching: [
           {
-            urlPattern: ({ request }) => request.mode === 'navigate',
-            handler: 'NetworkFirst',
+            // JS/CSS：缓存优先，后台静默更新
+            urlPattern: /\.(?:js|css)$/i,
+            handler: 'CacheFirst',
             options: {
-              cacheName: 'html-pages',
-              networkTimeoutSeconds: 5,
-              expiration: { maxEntries: 5, maxAgeSeconds: 60 * 60 * 24 },
+              cacheName: 'static-assets',
+              expiration: { maxEntries: 50, maxAgeSeconds: 60 * 60 * 24 * 7 },
             },
           },
           {
-            urlPattern: /\.(?:js|css)$/i,
-            handler: 'StaleWhileRevalidate',
-            options: { cacheName: 'static-assets' },
-          },
-          {
-            urlPattern: /\.(?:png|svg|ico|jpg|webp)$/i,
+            // 图片/字体：长期缓存
+            urlPattern: /\.(?:png|svg|ico|jpg|webp|woff2)$/i,
             handler: 'CacheFirst',
             options: {
               cacheName: 'images',
@@ -46,10 +46,10 @@ export default defineConfig({
         display: 'standalone',
         orientation: 'portrait',
         icons: [
-          { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
-          { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
+          { src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png' },
+          { src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png' },
           {
-            src: '/icons/icon-maskable.png',
+            src: 'icons/icon-maskable.png',
             sizes: '512x512',
             type: 'image/png',
             purpose: 'maskable',
