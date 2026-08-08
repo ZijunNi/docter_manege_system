@@ -5,6 +5,7 @@ const NAV_ITEMS = [
   { path: '/', label: '患者', icon: '👥' },
   { path: '/patient/new', label: '添加', icon: '＋' },
   { path: '/archive', label: '归档', icon: '📁' },
+  { path: '/templates', label: '模板', icon: '📋' },
   { path: '/settings', label: '设置', icon: '⚙️' },
 ]
 

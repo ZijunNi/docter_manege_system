@@ -1,11 +1,15 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { Patient } from '../../types/patient'
+import type { EventType } from '../../types/event'
 import { PatientStatusBadge } from './PatientStatusBadge'
-import { STATUS_COLORS } from '../../utils/constants'
-import { daysAfterAdmission, formatDisplayDate, today, toISODate } from '../../utils/date'
+import { usePatientStatuses } from '../../hooks/usePatientStatuses'
+import { usePatientEvents } from '../../hooks/usePatientEvents'
+import { useActiveEventTypes } from '../../hooks/useEventTypes'
 import { cn } from '../../utils/cn'
-import { updatePatient } from '../../services/patient-service'
+import { daysAfterAdmission, formatDisplayDate, today, toISODate } from '../../utils/date'
+import { addPatientEvent, removePatientEventByType } from '../../services/event-service'
+import { generateDailyTasks } from '../../engine/task-generator'
 
 interface PatientCardProps {
   patient: Patient
@@ -15,19 +19,25 @@ interface PatientCardProps {
 
 export function PatientCard({ patient, completedCount, totalCount }: PatientCardProps) {
   const navigate = useNavigate()
-  const colorClass = STATUS_COLORS[patient.status] || 'border-l-gray-300 bg-white'
   const days = daysAfterAdmission(patient.admissionDate, today())
-  const hasSurgery = patient.hasSurgery && patient.surgeryDate
-  const hasDischarge = !!patient.dischargeDate
+
+  // 动态状态
+  const { primary, loading: statusLoading } = usePatientStatuses(patient.id!)
+  const { events, eventTypes: eventTypeMap } = usePatientEvents(patient.id!)
+  const { eventTypes: activeTypes } = useActiveEventTypes()
+
+  const nonAdmissionTypes = activeTypes.filter(et => et.key !== 'admission')
+
+  // 颜色：从 primary status 获取，或使用默认
+  const colorClass = primary?.color || 'border-l-gray-300 bg-white'
 
   // 菜单状态
   const [menuOpen, setMenuOpen] = useState(false)
-  const [quickAction, setQuickAction] = useState<'surgery' | 'discharge' | null>(null)
+  const [quickAction, setQuickAction] = useState<{ eventType: EventType } | null>(null)
   const [actionDate, setActionDate] = useState('')
   const [saving, setSaving] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
 
-  // 点击外部关闭菜单
   useEffect(() => {
     if (!menuOpen) return
     const handler = (e: MouseEvent) => {
@@ -44,16 +54,15 @@ export function PatientCard({ patient, completedCount, totalCount }: PatientCard
     setMenuOpen(!menuOpen)
   }
 
-  const openQuickAction = (e: React.MouseEvent, type: 'surgery' | 'discharge') => {
+  const openQuickAction = (e: React.MouseEvent, eventType: EventType) => {
     e.stopPropagation()
     setMenuOpen(false)
-    setQuickAction(type)
-    if (type === 'surgery' && !patient.surgeryDate) {
-      setActionDate(findNextThu(patient.admissionDate))
-    } else if (type === 'surgery' && patient.surgeryDate) {
-      setActionDate(patient.surgeryDate)
-    } else if (type === 'discharge' && patient.dischargeDate) {
-      setActionDate(patient.dischargeDate)
+    setQuickAction({ eventType })
+
+    // 查找现有事件日期作为初始值
+    const existing = events.find(pe => pe.eventTypeId === eventType.id)
+    if (existing) {
+      setActionDate(existing.eventDate)
     } else {
       setActionDate(today())
     }
@@ -61,32 +70,22 @@ export function PatientCard({ patient, completedCount, totalCount }: PatientCard
 
   const handleSaveQuickAction = async (e: React.MouseEvent) => {
     e.stopPropagation()
-    if (!patient.id || !actionDate) return
+    if (!patient.id || !quickAction || !actionDate) return
     setSaving(true)
     try {
-      if (quickAction === 'surgery') {
-        await updatePatient(patient.id, {
-          name: patient.name,
-          admissionDate: patient.admissionDate,
-          hasSurgery: true,
-          surgeryDate: actionDate,
-          dischargeDate: patient.dischargeDate,
-          notes: patient.notes,
-        })
-      } else if (quickAction === 'discharge') {
-        await updatePatient(patient.id, {
-          name: patient.name,
-          admissionDate: patient.admissionDate,
-          hasSurgery: patient.hasSurgery,
-          surgeryDate: patient.surgeryDate,
-          dischargeDate: actionDate,
-          notes: patient.notes,
-        })
-      }
+      await addPatientEvent(patient.id, quickAction.eventType.id!, actionDate)
+      await generateDailyTasks()
       setQuickAction(null)
     } finally {
       setSaving(false)
     }
+  }
+
+  const handleRemoveEvent = async (e: React.MouseEvent, eventType: EventType) => {
+    e.stopPropagation()
+    if (!patient.id) return
+    await removePatientEventByType(patient.id, eventType.id!)
+    await generateDailyTasks()
   }
 
   return (
@@ -106,7 +105,12 @@ export function PatientCard({ patient, completedCount, totalCount }: PatientCard
             )}
           </div>
           <div className="flex items-center gap-1">
-            <PatientStatusBadge status={patient.status} />
+            {primary && !statusLoading && (
+              <PatientStatusBadge
+                label={primary.statusLabel}
+                dotColor={extractDotColor(primary.color)}
+              />
+            )}
             {/* 菜单按钮 */}
             <div ref={menuRef} className="relative">
               <button
@@ -117,20 +121,22 @@ export function PatientCard({ patient, completedCount, totalCount }: PatientCard
               </button>
               {menuOpen && (
                 <div className="absolute right-0 top-8 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-30 min-w-[140px]">
-                  <button
-                    onClick={e => openQuickAction(e, 'surgery')}
-                    className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
-                  >
-                    <span>🔪</span>
-                    {hasSurgery ? '修改手术日期' : '添加手术'}
-                  </button>
-                  <button
-                    onClick={e => openQuickAction(e, 'discharge')}
-                    className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
-                  >
-                    <span>🏥</span>
-                    {hasDischarge ? '修改出院日期' : '添加出院'}
-                  </button>
+                  {nonAdmissionTypes.map(et => {
+                    const hasEvent = events.some(pe => pe.eventTypeId === et.id)
+                    return (
+                      <button
+                        key={et.id}
+                        onClick={e => openQuickAction(e, et)}
+                        className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                      >
+                        <span>{et.icon}</span>
+                        {hasEvent ? `修改${et.name}日期` : `添加${et.name}`}
+                      </button>
+                    )
+                  })}
+                  {nonAdmissionTypes.length === 0 && (
+                    <span className="block px-4 py-2.5 text-xs text-gray-400">暂无可用事件类型</span>
+                  )}
                 </div>
               )}
             </div>
@@ -140,8 +146,22 @@ export function PatientCard({ patient, completedCount, totalCount }: PatientCard
         <div className="flex items-center gap-3 text-xs text-gray-500 mb-2">
           <span>入院: {formatDisplayDate(patient.admissionDate)}</span>
           <span>第 {days + 1} 天</span>
-          {hasSurgery && <span>🔪 手术: {formatDisplayDate(patient.surgeryDate!)}</span>}
-          {hasDischarge && <span className="text-amber-600">出院: {formatDisplayDate(patient.dischargeDate!)}</span>}
+          {events.map(pe => {
+            const et = eventTypeMap.get(pe.eventTypeId)
+            if (!et) return null
+            return (
+              <span key={pe.id} className="flex items-center gap-0.5">
+                {et.icon} {et.name}: {formatDisplayDate(pe.eventDate)}
+                <button
+                  onClick={e => handleRemoveEvent(e, et)}
+                  className="text-gray-400 hover:text-red-500 ml-0.5"
+                  title={`移除${et.name}事件`}
+                >
+                  ×
+                </button>
+              </span>
+            )
+          })}
         </div>
 
         {/* 任务进度条 */}
@@ -175,7 +195,7 @@ export function PatientCard({ patient, completedCount, totalCount }: PatientCard
           <div className="fixed inset-0 bg-black/40" />
           <div className="relative bg-white rounded-xl shadow-xl max-w-sm w-full p-5" onClick={e => e.stopPropagation()}>
             <h3 className="text-lg font-semibold text-gray-900 mb-4">
-              {quickAction === 'surgery' ? (hasSurgery ? '修改手术日期' : '添加手术') : (hasDischarge ? '修改出院日期' : '添加出院')}
+              {quickAction.eventType.icon} {quickAction.eventType.name}日期
             </h3>
             <div className="flex flex-col gap-1.5 mb-4">
               <label className="text-sm font-medium text-gray-700">日期</label>
@@ -183,13 +203,9 @@ export function PatientCard({ patient, completedCount, totalCount }: PatientCard
                 type="date"
                 value={actionDate}
                 onChange={e => setActionDate(e.target.value)}
-                min={quickAction === 'surgery' ? patient.admissionDate : today()}
                 className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
-            {quickAction === 'surgery' && (
-              <p className="text-xs text-gray-500 mb-4">默认周四进行手术，可根据实际情况修改</p>
-            )}
             <div className="flex gap-3">
               <button
                 onClick={() => setQuickAction(null)}
@@ -212,11 +228,13 @@ export function PatientCard({ patient, completedCount, totalCount }: PatientCard
   )
 }
 
-/** 找到入院后的第一个周四 */
-function findNextThu(admissionDate: string): string {
-  const d = new Date(admissionDate + 'T00:00:00')
-  while (d.getDay() !== 4) {
-    d.setDate(d.getDate() + 1)
+/** 从 EventRange.color 提取 dot color class */
+function extractDotColor(color: string): string {
+  // color 格式如 "border-l-red-500 bg-red-50"
+  // 提取中间的 bg-xxx-500 作为 dot color
+  const match = color.match(/border-l-(\w+-\d+)/)
+  if (match) {
+    return `bg-${match[1]}`
   }
-  return toISODate(d)
+  return 'bg-gray-400'
 }

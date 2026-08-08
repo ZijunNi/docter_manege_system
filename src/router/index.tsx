@@ -6,6 +6,8 @@ import { AddPatientPage } from '../pages/AddPatientPage'
 import { EditPatientPage } from '../pages/EditPatientPage'
 import { ArchivePage } from '../pages/ArchivePage'
 import { SettingsPage } from '../pages/SettingsPage'
+import { TemplateListPage } from '../pages/TemplateListPage'
+import { TemplateEditPage } from '../pages/TemplateEditPage'
 
 export function AppRouter() {
   return (
@@ -17,6 +19,9 @@ export function AppRouter() {
           <Route path="/patient/:id" element={<PatientDetailPage />} />
           <Route path="/patient/:id/edit" element={<EditPatientPage />} />
           <Route path="/archive" element={<ArchivePage />} />
+          <Route path="/templates" element={<TemplateListPage />} />
+          <Route path="/templates/new" element={<TemplateEditPage />} />
+          <Route path="/templates/:id" element={<TemplateEditPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

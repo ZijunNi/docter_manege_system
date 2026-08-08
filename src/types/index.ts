@@ -1,4 +1,4 @@
 export type { Patient, PatientInput } from './patient'
 export type { Task } from './task'
-export type { TaskTemplate } from './task-template'
-export { PatientStatus, PatientStatusLabel, TaskCategory, TaskCategoryLabel, SurgeryPhase, HolidayRule } from './enums'
+export type { EventType, EventRange, EventRangeTask, PatientEvent, ActiveStatus } from './event'
+export { TaskCategory, TaskCategoryLabel, HolidayRule } from './enums'

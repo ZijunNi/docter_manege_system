@@ -1,4 +1,4 @@
-import type { PatientStatus, TaskCategory } from './enums'
+import type { TaskCategory } from './enums'
 
 export interface Task {
   id?: number
@@ -8,7 +8,7 @@ export interface Task {
   title: string
   description?: string
   category: TaskCategory
-  patientStatus: PatientStatus
+  statusLabel: string
   isCompleted: boolean
   completedAt?: number
   createdAt: number

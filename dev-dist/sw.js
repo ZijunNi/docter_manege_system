@@ -67,7 +67,7 @@ if (!self.define) {
     });
   };
 }
-define(['./workbox-2427537b'], (function (workbox) { 'use strict';
+define(['./workbox-25613826'], (function (workbox) { 'use strict';
 
   self.skipWaiting();
   workbox.clientsClaim();
@@ -81,27 +81,20 @@ define(['./workbox-2427537b'], (function (workbox) { 'use strict';
     "revision": "3ca0b8505b4bec776b69afdba2768812"
   }, {
     "url": "index.html",
-    "revision": "0.b3oat352ap4"
+    "revision": "0.k1k8u08f3m8"
   }], {});
   workbox.cleanupOutdatedCaches();
   workbox.registerRoute(new workbox.NavigationRoute(workbox.createHandlerBoundToURL("index.html"), {
     allowlist: [/^\/$/]
   }));
-  workbox.registerRoute(({
-    request
-  }) => request.mode === "navigate", new workbox.NetworkFirst({
-    "cacheName": "html-pages",
-    "networkTimeoutSeconds": 5,
+  workbox.registerRoute(/\.(?:js|css)$/i, new workbox.CacheFirst({
+    "cacheName": "static-assets",
     plugins: [new workbox.ExpirationPlugin({
-      maxEntries: 5,
-      maxAgeSeconds: 86400
+      maxEntries: 50,
+      maxAgeSeconds: 604800
     })]
   }), 'GET');
-  workbox.registerRoute(/\.(?:js|css)$/i, new workbox.StaleWhileRevalidate({
-    "cacheName": "static-assets",
-    plugins: []
-  }), 'GET');
-  workbox.registerRoute(/\.(?:png|svg|ico|jpg|webp)$/i, new workbox.CacheFirst({
+  workbox.registerRoute(/\.(?:png|svg|ico|jpg|webp|woff2)$/i, new workbox.CacheFirst({
     "cacheName": "images",
     plugins: [new workbox.ExpirationPlugin({
       maxEntries: 30,

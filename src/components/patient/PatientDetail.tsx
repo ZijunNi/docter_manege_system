@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { Patient } from '../../types/patient'
 import { useTodayTasks } from '../../hooks/useTasks'
+import { usePatientStatuses } from '../../hooks/usePatientStatuses'
+import { usePatientEvents } from '../../hooks/usePatientEvents'
 import { PatientStatusBadge } from './PatientStatusBadge'
 import { TaskList } from '../task/TaskList'
 import { LoadingSpinner } from '../ui/LoadingSpinner'
@@ -17,6 +19,8 @@ interface PatientDetailProps {
 export function PatientDetail({ patient }: PatientDetailProps) {
   const navigate = useNavigate()
   const { tasks, loading, total, completed } = useTodayTasks(patient.id!)
+  const { statuses, primary, loading: statusLoading } = usePatientStatuses(patient.id!)
+  const { events, eventTypes } = usePatientEvents(patient.id!)
   const [showArchiveDialog, setShowArchiveDialog] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
 
@@ -55,24 +59,31 @@ export function PatientDetail({ patient }: PatientDetailProps) {
               <p className="text-sm text-gray-500 mt-0.5">床位: {patient.bedNumber}</p>
             )}
           </div>
-          <PatientStatusBadge status={patient.status} size="md" />
+          <div className="flex flex-wrap gap-1 justify-end">
+            {!statusLoading && statuses.map(s => (
+              <PatientStatusBadge
+                key={s.eventRangeId}
+                label={s.statusLabel}
+                dotColor={extractDotColor(s.color)}
+                size="md"
+              />
+            ))}
+          </div>
         </div>
 
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-600 mb-1">
           <span>入院: {formatDisplayDate(patient.admissionDate)}</span>
           <span>已住院 {days + 1} 天</span>
-          {patient.hasSurgery && patient.surgeryDate && (
-            <span className="text-purple-600 font-medium">
-              手术日: {formatDisplayDate(patient.surgeryDate)}
-            </span>
-          )}
+          {events.map(pe => {
+            const et = eventTypes.get(pe.eventTypeId)
+            if (!et) return null
+            return (
+              <span key={pe.id}>
+                {et.icon} {et.name}: {formatDisplayDate(pe.eventDate)}
+              </span>
+            )
+          })}
         </div>
-
-        {patient.dischargeDate && (
-          <p className="text-sm text-amber-600 font-medium">
-            出院日期: {formatDisplayDate(patient.dischargeDate)}
-          </p>
-        )}
 
         {patient.notes && (
           <p className="text-sm text-gray-500 mt-2 bg-gray-50 p-2 rounded">{patient.notes}</p>
@@ -158,4 +169,13 @@ export function PatientDetail({ patient }: PatientDetailProps) {
       />
     </div>
   )
+}
+
+/** 从 EventRange.color 提取 dot color class */
+function extractDotColor(color: string): string {
+  const match = color.match(/border-l-(\w+-\d+)/)
+  if (match) {
+    return `bg-${match[1]}`
+  }
+  return 'bg-gray-400'
 }

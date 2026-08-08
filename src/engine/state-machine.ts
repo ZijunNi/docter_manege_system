@@ -1,90 +1,127 @@
 import type { Patient } from '../types/patient'
-import { PatientStatus } from '../types/enums'
-import { diffDays, addDays, getWeekday, today, isWeekend } from '../utils/date'
-import { isWorkday } from './holiday-utils'
+import type { EventType, EventRange, PatientEvent, ActiveStatus } from '../types/event'
+import { diffDays } from '../utils/date'
+import { countWorkdaysBetween } from './holiday-utils'
 
 /**
- * 获取患者所有当前活跃的状态（纯叠加，无覆盖）
+ * 获取患者在当前日期的所有活跃状态（EventRange 级别的叠加）
  *
- * 每个状态独立贡献其对应的模板。状态之间不互相覆盖——
- * 一个患者可以同时处于 DAY0_ADMISSION + SURGERY_PRE + PRE_SURGERY + PRE_DISCHARGE。
+ * 核心逻辑：
+ * 1. 入院状态：根据 patient.admissionDate 匹配 Admission EventType 的所有 ranges
+ * 2. 事件状态：遍历每个 PatientEvent，计算 dayOffset（自然日或工作日），
+ *    匹配对应 EventType 的 ranges
+ * 3. 所有匹配的 range 叠加返回，不做互斥
  */
-export function getAllActiveStatuses(patient: Patient, targetDate?: string): PatientStatus[] {
-  const date = targetDate || today()
+export function getActiveStatuses(
+  patient: Patient,
+  patientEvents: PatientEvent[],
+  eventTypes: EventType[],
+  eventRanges: EventRange[],
+  targetDate: string
+): ActiveStatus[] {
+  const statuses: ActiveStatus[] = []
 
   // 已归档：唯一真正的终端状态
-  if (patient.isArchived) return [PatientStatus.ARCHIVED]
+  if (patient.isArchived) return statuses
 
-  const statuses: PatientStatus[] = []
+  // 找到入院事件类型
+  const admissionType = eventTypes.find(et => et.key === 'admission')
 
-  // === 基础状态（入院天数） ===
-  const daysFromAdmission = diffDays(date, patient.admissionDate)
-  if (daysFromAdmission === 0) {
-    statuses.push(PatientStatus.DAY0_ADMISSION)
-  } else if (daysFromAdmission === 1) {
-    statuses.push(PatientStatus.DAY1_ADMISSION)
-  } else {
-    statuses.push(PatientStatus.NORMAL_INPATIENT)
-  }
+  // === 1. 入院状态（基于 patient.admissionDate） ===
+  if (admissionType && patient.admissionDate) {
+    const admissionRanges = eventRanges.filter(r => r.eventTypeId === admissionType.id)
+    const dayFromAdmission = diffDays(targetDate, patient.admissionDate)
 
-  // === 手术叠加状态 ===
-  // diffDays(surgeryDate, today): 正数=手术在未来, 0=今天, 负数=已过去
-  if (patient.hasSurgery && patient.surgeryDate) {
-    const daysToSurgery = diffDays(patient.surgeryDate, date)
-    if (daysToSurgery === 0) {
-      statuses.push(PatientStatus.SURGERY_DAY)
-    } else if (daysToSurgery > 0) {
-      statuses.push(PatientStatus.SURGERY_PRE)
-      if (daysToSurgery === 1) {
-        statuses.push(PatientStatus.PRE_SURGERY)
-      }
-    } else if (daysToSurgery < 0 && daysToSurgery >= -2) {
-      // 术后第1-2天（手术当天是 day 0，术后第1天是 -1，第2天是 -2）
-      statuses.push(PatientStatus.POST_SURGERY)
-    }
-  }
-
-  // === 出院叠加状态 ===
-  if (patient.dischargeDate) {
-    if (date === patient.dischargeDate) {
-      statuses.push(PatientStatus.DISCHARGE_DAY)
-    } else if (date < patient.dischargeDate) {
-      const prevWorkday = getPrevWorkday(patient.dischargeDate)
-      if (date === prevWorkday) {
-        statuses.push(PatientStatus.PRE_DISCHARGE)
+    for (const range of admissionRanges) {
+      if (dayFromAdmission >= range.dayOffsetStart && dayFromAdmission <= range.dayOffsetEnd) {
+        statuses.push({
+          eventRangeId: range.id!,
+          eventTypeId: admissionType.id!,
+          eventTypeName: admissionType.name,
+          eventTypeIcon: admissionType.icon,
+          eventTypeKey: admissionType.key,
+          eventDate: patient.admissionDate,
+          statusLabel: range.statusLabel,
+          color: range.color,
+          priority: admissionType.order * 1000 + range.order,
+        })
       }
     }
   }
+
+  // === 2. 事件状态（基于 PatientEvent） ===
+  for (const pe of patientEvents) {
+    const et = eventTypes.find(t => t.id === pe.eventTypeId)
+    if (!et || !et.isActive) continue
+
+    const ranges = eventRanges.filter(r => r.eventTypeId === et.id)
+
+    for (const range of ranges) {
+      let dayOffset: number
+
+      if (range.useWorkdayOffset) {
+        // 按工作日计数
+        dayOffset = countWorkdaysBetween(pe.eventDate, targetDate)
+      } else {
+        // 按自然日计数
+        dayOffset = diffDays(targetDate, pe.eventDate)
+      }
+
+      if (dayOffset >= range.dayOffsetStart && dayOffset <= range.dayOffsetEnd) {
+        statuses.push({
+          eventRangeId: range.id!,
+          eventTypeId: et.id!,
+          eventTypeName: et.name,
+          eventTypeIcon: et.icon,
+          eventTypeKey: et.key,
+          eventDate: pe.eventDate,
+          statusLabel: range.statusLabel,
+          color: range.color,
+          priority: et.order * 1000 + range.order,
+        })
+      }
+    }
+  }
+
+  // 按 priority 降序排序（高优先级的在前）
+  statuses.sort((a, b) => b.priority - a.priority)
 
   return statuses
 }
 
 /**
- * 获取用于卡片展示的"主状态"（取最紧急的）
+ * 获取用于卡片展示的"主状态"（取 priority 最高的）
  */
-export function determinePatientStatus(patient: Patient, targetDate?: string): PatientStatus {
-  const statuses = getAllActiveStatuses(patient, targetDate)
-  return statuses[statuses.length - 1]
+export function getPrimaryStatus(
+  patient: Patient,
+  patientEvents: PatientEvent[],
+  eventTypes: EventType[],
+  eventRanges: EventRange[],
+  targetDate: string
+): ActiveStatus | null {
+  // 已归档特殊处理
+  if (patient.isArchived) return null
+
+  const statuses = getActiveStatuses(patient, patientEvents, eventTypes, eventRanges, targetDate)
+  return statuses.length > 0 ? statuses[0] : null
+}
+
+// ====== 保留旧接口兼容（逐步迁移） ======
+
+/**
+ * @deprecated 使用 getActiveStatuses 代替
+ */
+export function getAllActiveStatuses(patient: Patient, targetDate?: string): string[] {
+  // 已归档
+  if (patient.isArchived) return ['archived']
+  // 不包含事件数据时返回空
+  return []
 }
 
 /**
- * 判断入院第三天是否为非工作日
+ * @deprecated 使用 getPrimaryStatus 代替
  */
-export function isDay3NonWorkday(admissionDate: string, targetDate?: string): boolean {
-  const date = targetDate || today()
-  const daysFromAdmission = diffDays(date, admissionDate)
-  if (daysFromAdmission !== 3) return false
-  return isWeekend(date) || !isWorkday(date)
-}
-
-/**
- * 获取某个日期之前最近的一个工作日
- */
-function getPrevWorkday(date: string): string {
-  let prev = addDays(date, -1)
-  while (true) {
-    const w = getWeekday(prev)
-    if (w !== 0 && w !== 6 && isWorkday(prev)) return prev
-    prev = addDays(prev, -1)
-  }
+export function determinePatientStatus(patient: Patient, targetDate?: string): string {
+  if (patient.isArchived) return 'archived'
+  return 'normal_inpatient'
 }

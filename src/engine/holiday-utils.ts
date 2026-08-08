@@ -65,3 +65,38 @@ export function getNextWorkday(date: string): string {
   }
   return next
 }
+
+/**
+ * 计算两个日期之间的工作日偏移（按工作日计数，正向或反向）
+ *
+ * @param fromDate - 起始日期（通常是事件日期）
+ * @param toDate - 目标日期（通常是 targetDate）
+ * @returns 正数 = toDate 是 fromDate 之后的第 N 个工作日
+ *          0 = 同一天（且是工作日）
+ *          负数 = toDate 是 fromDate 之前的第 N 个工作日
+ *
+ * 例：fromDate=周一, toDate=前一个周五 → 返回 -1（1 个工作日前）
+ *     fromDate=周一, toDate=周三 → 返回 2（2 个工作日后）
+ *     fromDate=周五, toDate=周一 → 返回 1（1 个工作日后，跳过周末）
+ */
+export function countWorkdaysBetween(fromDate: string, toDate: string): number {
+  if (fromDate === toDate) return 0
+
+  const direction = toDate > fromDate ? 1 : -1
+  let count = 0
+  let cursor = fromDate
+
+  while (true) {
+    cursor = addDays(cursor, direction)
+    if (direction === 1 && cursor > toDate) break
+    if (direction === -1 && cursor < toDate) break
+
+    if (isWorkday(cursor)) {
+      count += direction
+    }
+
+    if (cursor === toDate) break
+  }
+
+  return count
+}

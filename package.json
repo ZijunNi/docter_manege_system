@@ -9,7 +9,9 @@
     "build:local": "vite build --base=/",
     "lint": "oxlint",
     "preview": "vite preview",
-    "preview:local": "npm run build:local && vite preview --host"
+    "preview:local": "npm run build:local && vite preview --host",
+    "predeploy": "npm run build",
+    "deploy": "gh-pages -d dist"
   },
   "dependencies": {
     "dexie": "^4.4.4",

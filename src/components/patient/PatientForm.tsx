@@ -1,40 +1,87 @@
 import { useState } from 'react'
 import type { PatientInput } from '../../types/patient'
+import type { EventType, PatientEvent } from '../../types/event'
 import { DatePicker } from '../ui/DatePicker'
-import { today, addDays } from '../../utils/date'
-import { getNextWorkday } from '../../engine/holiday-utils'
+import { today } from '../../utils/date'
+import { useActiveEventTypes } from '../../hooks/useEventTypes'
+import { usePatientEvents } from '../../hooks/usePatientEvents'
+
+export interface EventAssignment {
+  eventTypeId: number
+  eventDate: string
+}
 
 interface PatientFormProps {
   initial?: PatientInput
-  onSubmit: (data: PatientInput) => void
+  initialEvents?: PatientEvent[]
+  onSubmit: (data: PatientInput, events: EventAssignment[]) => void
   onCancel: () => void
   submitLabel?: string
   disabled?: boolean
 }
 
-export function PatientForm({ initial, onSubmit, onCancel, submitLabel = '保存', disabled = false }: PatientFormProps) {
+export function PatientForm({
+  initial,
+  initialEvents,
+  onSubmit,
+  onCancel,
+  submitLabel = '保存',
+  disabled = false,
+}: PatientFormProps) {
   const [name, setName] = useState(initial?.name || '')
   const [bedNumber, setBedNumber] = useState(initial?.bedNumber || '')
   const [admissionDate, setAdmissionDate] = useState(initial?.admissionDate || today())
-  const [hasSurgery, setHasSurgery] = useState(initial?.hasSurgery || false)
-  const [surgeryDate, setSurgeryDate] = useState(initial?.surgeryDate || '')
-  const [preDischargeDate, setPreDischargeDate] = useState(initial?.preDischargeDate || '')
-  const [dischargeDate, setDischargeDate] = useState(initial?.dischargeDate || '')
   const [notes, setNotes] = useState(initial?.notes || '')
+
+  // 事件分配状态：{ [eventTypeKey]: date | null }
+  const { eventTypes: activeTypes } = useActiveEventTypes()
+  const nonAdmissionTypes = activeTypes.filter(et => et.key !== 'admission' && et.isActive)
+
+  // 初始化事件日期（编辑模式）
+  const [eventDates, setEventDates] = useState<Record<string, string>>(() => {
+    const dates: Record<string, string> = {}
+    if (initialEvents) {
+      for (const pe of initialEvents) {
+        const et = activeTypes.find(t => t.id === pe.eventTypeId)
+        if (et) {
+          dates[et.key] = pe.eventDate
+        }
+      }
+    }
+    return dates
+  })
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!name.trim()) return
 
-    onSubmit({
+    const patientInput: PatientInput = {
       name: name.trim(),
       bedNumber: bedNumber.trim() || undefined,
       admissionDate,
-      hasSurgery,
-      surgeryDate: hasSurgery ? surgeryDate : undefined,
-      preDischargeDate: preDischargeDate || undefined,
-      dischargeDate: dischargeDate || undefined,
       notes: notes.trim() || undefined,
+    }
+
+    const eventAssignments: EventAssignment[] = []
+    for (const et of nonAdmissionTypes) {
+      const date = eventDates[et.key]
+      if (date) {
+        eventAssignments.push({ eventTypeId: et.id!, eventDate: date })
+      }
+    }
+
+    onSubmit(patientInput, eventAssignments)
+  }
+
+  const handleSetEventDate = (eventType: EventType, date: string) => {
+    setEventDates(prev => ({ ...prev, [eventType.key]: date }))
+  }
+
+  const handleRemoveEventDate = (eventType: EventType) => {
+    setEventDates(prev => {
+      const next = { ...prev }
+      delete next[eventType.key]
+      return next
     })
   }
 
@@ -70,31 +117,56 @@ export function PatientForm({ initial, onSubmit, onCancel, submitLabel = '保存
       {/* 入院日期 */}
       <DatePicker label="入院日期" value={admissionDate} onChange={setAdmissionDate} max={today()} required />
 
-      {/* 是否需要手术 */}
-      <div className="flex items-center gap-3">
-        <label className="text-sm font-medium text-gray-700">是否需要手术</label>
-        <button
-          type="button"
-          onClick={() => {
-            setHasSurgery(!hasSurgery)
-            if (!hasSurgery) {
-              // 默认：入院后第一个周四（工作日）
-              setSurgeryDate(findNextThuAfter(admissionDate))
-            }
-          }}
-          className={`relative w-11 h-6 rounded-full transition-colors ${hasSurgery ? 'bg-blue-600' : 'bg-gray-300'}`}
-        >
-          <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${hasSurgery ? 'translate-x-5' : ''}`} />
-        </button>
-      </div>
-
-      {/* 手术日期 */}
-      {hasSurgery && (
-        <DatePicker label="手术日期" value={surgeryDate} onChange={setSurgeryDate} min={admissionDate} />
+      {/* 事件区块 */}
+      {nonAdmissionTypes.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <label className="text-sm font-medium text-gray-700">事件</label>
+          <div className="bg-gray-50 rounded-lg border border-gray-200 divide-y divide-gray-200">
+            {nonAdmissionTypes.map(et => {
+              const currentDate = eventDates[et.key]
+              return (
+                <div key={et.key} className="flex items-center justify-between px-3 py-2.5">
+                  <div className="flex items-center gap-2">
+                    <span>{et.icon}</span>
+                    <span className="text-sm text-gray-700">{et.name}</span>
+                    {currentDate && (
+                      <span className="text-xs text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
+                        {currentDate}
+                      </span>
+                    )}
+                  </div>
+                  {currentDate ? (
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="date"
+                        value={currentDate}
+                        onChange={e => handleSetEventDate(et, e.target.value)}
+                        className="w-[130px] px-2 py-1 text-xs border border-gray-300 rounded text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveEventDate(et)}
+                        className="text-gray-400 hover:text-red-500 text-sm px-1"
+                        title="移除事件日期"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleSetEventDate(et, today())}
+                      className="text-xs text-blue-600 font-medium hover:text-blue-700"
+                    >
+                      + 添加日期
+                    </button>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
       )}
-
-      {/* 出院日期 */}
-      <DatePicker label="出院日期" value={dischargeDate} onChange={setDischargeDate} min={admissionDate} />
 
       {/* 备注 */}
       <div className="flex flex-col gap-1.5">
@@ -128,13 +200,4 @@ export function PatientForm({ initial, onSubmit, onCancel, submitLabel = '保存
       </div>
     </form>
   )
-}
-
-/** 找到从某日期开始的第一个周四（工作日） */
-function findNextThuAfter(date: string): string {
-  const d = new Date(date + 'T00:00:00')
-  while (d.getDay() !== 4) {
-    d.setDate(d.getDate() + 1)
-  }
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
