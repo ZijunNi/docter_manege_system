@@ -31,18 +31,91 @@ const COLOR_OPTIONS = [
 // ====== 常用 Emoji ======
 const EMOJI_OPTIONS = ['🏥', '🔪', '🏠', '💉', '🩺', '💊', '🩻', '🧪', '📋', '🩹', '🫀', '🧬', '🔬', '⚕️', '🩸']
 
-/** 偏移量转自然语言：0→"当日", -3→"前3天", +2→"第3天" */
-function offsetToLabel(offset: number): string {
+/** 偏移量转自然语言：0→"当日", -3→"前3天", +3→"后3天", null→"不限" */
+function offsetToLabel(offset: number | null | undefined): string {
+  if (offset === null || offset === undefined) return '不限'
   if (offset === 0) return '当日'
   if (offset < 0) return `前${Math.abs(offset)}天`
-  return `第${offset + 1}天`
+  return `后${offset}天`
 }
 
 /** 范围偏移描述，如 "前1天 ~ 当日" */
-function rangeOffsetLabel(start: number, end: number, useWorkday: boolean): string {
+function rangeOffsetLabel(start: number | null | undefined, end: number | null | undefined, useWorkday: boolean): string {
   const suffix = useWorkday ? '（工作日）' : ''
-  if (start === end) return `${offsetToLabel(start)}${suffix}`
   return `${offsetToLabel(start)} ~ ${offsetToLabel(end)}${suffix}`
+}
+
+/** 哨兵值：-365 表示无下限，365 表示无上限 */
+const UNBOUNDED_START = -365
+const UNBOUNDED_END = 365
+
+type OffsetMode = 'unbounded' | 'today' | 'before' | 'after'
+
+/** 内部偏移值 → UI 模式 + 天数 */
+function offsetToMode(val: number | null | undefined): { mode: OffsetMode; days: number } {
+  if (val === null || val === undefined || val === UNBOUNDED_START || val === UNBOUNDED_END) {
+    return { mode: 'unbounded', days: 1 }
+  }
+  if (val === 0) return { mode: 'today', days: 0 }
+  if (val < 0) return { mode: 'before', days: Math.abs(val) }
+  return { mode: 'after', days: val }
+}
+
+/** UI 模式 + 天数 → 内部偏移值（null 表示不限） */
+function modeToOffset(mode: OffsetMode, days: number): number | null {
+  switch (mode) {
+    case 'unbounded': return null
+    case 'today': return 0
+    case 'before': return days > 0 ? -days : 0
+    case 'after': return days > 0 ? days : 0
+  }
+}
+
+/** 偏移量选择器：不限 / 当日 / 前N天 / 后N天 */
+function OffsetField({ label, value, onChange }: {
+  label: string
+  value: number | null | undefined
+  onChange: (v: number | null) => void
+}) {
+  const { mode, days } = offsetToMode(value)
+
+  return (
+    <div className="flex flex-col gap-1">
+      <label className="text-xs text-gray-500">{label}</label>
+      <div className="flex items-center gap-1">
+        <select
+          value={mode}
+          onChange={e => {
+            const newMode = e.target.value as OffsetMode
+            // 从"当日"切换到"前/后"时，days 默认从 1 开始
+            const newDays = (newMode === 'before' || newMode === 'after') && days < 1 ? 1 : days
+            onChange(modeToOffset(newMode, newDays))
+          }}
+          className="px-1.5 py-1.5 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 flex-shrink-0"
+        >
+          <option value="unbounded">不限</option>
+          <option value="today">当日</option>
+          <option value="before">前</option>
+          <option value="after">后</option>
+        </select>
+        {(mode === 'before' || mode === 'after') && (
+          <>
+            <input
+              type="number"
+              min={1}
+              value={days}
+              onChange={e => {
+                const d = parseInt(e.target.value) || 1
+                onChange(modeToOffset(mode, d > 0 ? d : 1))
+              }}
+              className="w-12 px-1.5 py-1.5 border border-gray-300 rounded text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+            <span className="text-xs text-gray-500 flex-shrink-0">天</span>
+          </>
+        )}
+      </div>
+    </div>
+  )
 }
 
 export function TemplateEditPage() {
@@ -66,6 +139,15 @@ export function TemplateEditPage() {
     tasks: Array<{ tempId: string; data: Partial<EventRangeTask> }>
     expanded: boolean
   }>>([])
+
+  // ====== 验证 ======
+  const rangeErrors = ranges.map(range => {
+    const start = range.data.dayOffsetStart ?? UNBOUNDED_START
+    const end = range.data.dayOffsetEnd ?? UNBOUNDED_END
+    if (start > end) return '开始时间不能晚于结束时间'
+    return null
+  })
+  const hasRangeError = rangeErrors.some(e => e !== null)
 
   // 初始化编辑模式
   useEffect(() => {
@@ -123,8 +205,8 @@ export function TemplateEditPage() {
           name: range.data.name || '',
           statusLabel: range.data.name || '',   // 自动取名称，不再让用户单独填写
           color,        // 所有范围统一使用模板颜色
-          dayOffsetStart: range.data.dayOffsetStart ?? 0,
-          dayOffsetEnd: range.data.dayOffsetEnd ?? 0,
+          dayOffsetStart: range.data.dayOffsetStart ?? UNBOUNDED_START,
+          dayOffsetEnd: range.data.dayOffsetEnd ?? UNBOUNDED_END,
           useWorkdayOffset: range.data.useWorkdayOffset || false,
           order: range.data.order || 0,
         }
@@ -364,7 +446,7 @@ export function TemplateEditPage() {
           </div>
 
           {ranges.map((range, rangeIdx) => (
-            <div key={range.tempId} className="bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden">
+            <div key={range.tempId} className={`bg-white rounded-lg shadow-sm border overflow-hidden ${rangeErrors[rangeIdx] ? 'border-red-300' : 'border-gray-100'}`}>
               {/* Range Header */}
               <div
                 onClick={() => toggleRangeExpanded(range.tempId)}
@@ -375,7 +457,11 @@ export function TemplateEditPage() {
                     {range.data.name || `范围 ${rangeIdx + 1}`}
                   </span>
                   <span className="text-xs text-gray-400">
-                    {rangeOffsetLabel(range.data.dayOffsetStart ?? 0, range.data.dayOffsetEnd ?? 0, range.data.useWorkdayOffset || false)}
+                    {rangeOffsetLabel(
+                      range.data.dayOffsetStart,
+                      range.data.dayOffsetEnd,
+                      range.data.useWorkdayOffset || false
+                    )}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -408,28 +494,21 @@ export function TemplateEditPage() {
                       />
                       <span className="text-[10px] text-gray-400">将显示在患者状态标签中</span>
                     </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="flex flex-col gap-1">
-                        <label className="text-xs text-gray-500">开始时间</label>
-                        <input
-                          type="number"
-                          value={range.data.dayOffsetStart ?? 0}
-                          onChange={e => updateRangeField(range.tempId, 'dayOffsetStart', parseInt(e.target.value) || 0)}
-                          className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
-                        />
-                        <span className="text-[10px] text-gray-400">负数=事件前，0=当日</span>
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        <label className="text-xs text-gray-500">结束时间</label>
-                        <input
-                          type="number"
-                          value={range.data.dayOffsetEnd ?? 0}
-                          onChange={e => updateRangeField(range.tempId, 'dayOffsetEnd', parseInt(e.target.value) || 0)}
-                          className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
-                        />
-                        <span className="text-[10px] text-gray-400">正数=事件后，0=当日</span>
-                      </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <OffsetField
+                        label="开始时间"
+                        value={range.data.dayOffsetStart}
+                        onChange={v => updateRangeField(range.tempId, 'dayOffsetStart', v)}
+                      />
+                      <OffsetField
+                        label="结束时间"
+                        value={range.data.dayOffsetEnd}
+                        onChange={v => updateRangeField(range.tempId, 'dayOffsetEnd', v)}
+                      />
                     </div>
+                    {rangeErrors[rangeIdx] && (
+                      <p className="text-xs text-red-500">{rangeErrors[rangeIdx]}</p>
+                    )}
                   </div>
 
                   {/* Workday offset toggle */}
@@ -595,8 +674,9 @@ export function TemplateEditPage() {
           <button
             type="button"
             onClick={handleSave}
-            disabled={saving || !name.trim()}
+            disabled={saving || !name.trim() || hasRangeError}
             className="flex-1 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+            title={hasRangeError ? '请先修正日期范围的错误' : undefined}
           >
             {saving ? '保存中...' : '保存模板'}
           </button>
