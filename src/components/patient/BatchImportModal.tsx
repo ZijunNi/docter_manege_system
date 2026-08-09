@@ -27,12 +27,9 @@ const PLACEHOLDER = `张三  12床  20260807
 
 const FORMAT_HINT = '每行一个患者，空格/Tab/逗号分隔。格式：姓名 床位号 入院日期 备注。除姓名外均可省略，日期默认今天。'
 
-/** 分割一行文本：Tab → 2+空格 → 逗号 */
+/** 分割一行文本：Tab、全/半角空格、全/半角逗号，连续分隔符视为一个 */
 function splitLine(line: string): string[] {
-  if (line.includes('\t')) return line.split('\t')
-  if (/  +/.test(line)) return line.split(/  +/)
-  if (line.includes(',')) return line.split(',')
-  return [line]
+  return line.split(/[\t 　,，]+/)
 }
 
 /** 分段检测日期字段，返回 { date, dateIdx, fieldsWithoutDate } */
