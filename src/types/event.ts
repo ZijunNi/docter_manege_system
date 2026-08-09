@@ -28,10 +28,13 @@ export interface EventRange {
 export interface EventRangeTask {
   id?: number
   eventRangeId: number
+  key?: string                    // 可选的语义标识符，供代码引用（不依赖可变标题）
   title: string
   description?: string
   category: TaskCategory
-  weekday: number | null          // null=每天，0-6=指定周几
+  weekdays: number[]              // 空数组=每天，[1,3,5]=周一三五，0=周日
+  onlyOnWorkday: boolean          // 仅在自然工作日出现
+  onlyOnNonWorkday: boolean       // 仅在自然非工作日出现
   isHolidayDependent: boolean
   holidayRule: HolidayRule | null
   isOnceOnly: boolean             // 一次性任务，完成不再出现

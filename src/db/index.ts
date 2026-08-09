@@ -147,5 +147,57 @@ db.version(7).stores({
   }
 })
 
+// v8: EventRangeTask 字段升级 — weekday→weekdays 多选，新增 onlyOnWorkday/onlyOnNonWorkday
+db.version(8).stores({
+  patients: '++id, isArchived, admissionDate',
+  tasks: '++id, patientId, date, [patientId+date]',
+  eventTypes: '++id, key',
+  eventRanges: '++id, eventTypeId',
+  eventRangeTasks: '++id, eventRangeId',
+  patientEvents: '++id, patientId, eventTypeId, [patientId+eventTypeId]',
+}).upgrade(async tx => {
+  // 1. 迁移所有 eventRangeTasks：weekday → weekdays，补默认值
+  const allRangeTasks = await tx.table('eventRangeTasks').toArray()
+  for (const t of allRangeTasks) {
+    const raw = t as Record<string, unknown>
+    const oldWeekday = raw['weekday'] as number | null | undefined
+    await tx.table('eventRangeTasks').update(t.id!, {
+      weekdays: (oldWeekday === null || oldWeekday === undefined) ? [] : [oldWeekday],
+      onlyOnWorkday: (raw['onlyOnWorkday'] as boolean) ?? false,
+      onlyOnNonWorkday: (raw['onlyOnNonWorkday'] as boolean) ?? false,
+      weekday: undefined,  // 移除旧字段
+    })
+  }
+
+  // 2. 更新内置 admission 事件的 day-1 range 任务：onlyOnWorkday 语义
+  const admissionType = await tx.table('eventTypes').where('key').equals('admission').first()
+  if (admissionType) {
+    const ranges = await tx.table('eventRanges')
+      .where('eventTypeId').equals(admissionType.id)
+      .toArray()
+    // 找到入院第二日 range（dayOffsetStart=1, dayOffsetEnd=1）
+    const day1Range = ranges.find((r: Record<string, unknown>) =>
+      r['dayOffsetStart'] === 1 && r['dayOffsetEnd'] === 1)
+    if (day1Range) {
+      const day1Tasks = await tx.table('eventRangeTasks')
+        .where('eventRangeId').equals(day1Range.id)
+        .toArray()
+      for (const t of day1Tasks) {
+        const raw = t as Record<string, unknown>
+        if (raw['title'] === '写副主任查房') {
+          await tx.table('eventRangeTasks').update(t.id!, {
+            key: 'day1_vice_director_round',
+            onlyOnWorkday: true,
+          })
+        } else if (raw['title'] === '写日常病程') {
+          await tx.table('eventRangeTasks').update(t.id!, {
+            key: 'day1_daily_note',
+          })
+        }
+      }
+    }
+  }
+})
+
 export { db }
 export type { ResidentScheduleDB }

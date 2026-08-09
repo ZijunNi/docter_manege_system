@@ -3,8 +3,8 @@ import type { Patient } from '../types/patient'
 import type { Task } from '../types/task'
 import type { EventType, EventRange, EventRangeTask, PatientEvent } from '../types/event'
 import { getActiveStatuses } from './state-machine'
-import { today, getWeekday, isWeekend } from '../utils/date'
-import { isDayBeforeHoliday, isNonWorkday } from './holiday-utils'
+import { today, getWeekday } from '../utils/date'
+import { isDayBeforeHoliday, isNonWorkday, isWorkday } from './holiday-utils'
 
 // 模块级互斥锁，防止 generateDailyTasks 被并发调用
 let refreshLock: Promise<void> | null = null
@@ -101,7 +101,7 @@ async function generateTasksForPatientInternal(
 
   // 匹配任务：每个活跃 status 贡献其 range 下的所有 tasks
   const matchedTasks = matchRangeTasks(
-    patient, date, activeStatuses, allEventRangeTasks, completedOnceKeys
+    date, activeStatuses, allEventRangeTasks, completedOnceKeys
   )
 
   // 查询今日已有任务（用于保留完成状态）
@@ -150,7 +150,6 @@ async function generateTasksForPatientInternal(
  * 模板匹配：纯按活跃状态 + 日期条件过滤
  */
 function matchRangeTasks(
-  patient: Patient,
   date: string,
   activeStatuses: import('../types/event').ActiveStatus[],
   allEventRangeTasks: EventRangeTask[],
@@ -159,9 +158,6 @@ function matchRangeTasks(
   const weekday = getWeekday(date)
   const results: Array<{ task: EventRangeTask; statusLabel: string; order: number }> = []
   const seenKeys = new Set<string>()
-
-  // 收集活跃 range 的 ID 集合
-  const activeRangeIds = new Set(activeStatuses.map(s => s.eventRangeId))
 
   for (const status of activeStatuses) {
     const rangeTasks = allEventRangeTasks.filter(t =>
@@ -175,10 +171,14 @@ function matchRangeTasks(
         if (completedOnceKeys.has(onceKey)) continue
       }
 
-      // 2. 星期几过滤
-      if (task.weekday !== null && task.weekday !== weekday) continue
+      // 2. 星期几过滤（多选，空数组=每天）
+      if (task.weekdays.length > 0 && !task.weekdays.includes(weekday)) continue
 
-      // 3. 假期条件过滤
+      // 3. 工作日/非工作日过滤
+      if (task.onlyOnWorkday && isNonWorkday(date)) continue
+      if (task.onlyOnNonWorkday && isWorkday(date)) continue
+
+      // 4. 假期条件过滤
       if (task.isHolidayDependent && task.holidayRule) {
         switch (task.holidayRule) {
           case 'before_holiday':
@@ -187,28 +187,6 @@ function matchRangeTasks(
           case 'non_workday':
             if (!isNonWorkday(date)) continue
             break
-        }
-      }
-
-      // 4. DAY1 特殊规则：工作日 vs 周末二选一
-      // 入院第二日：工作日写副主任查房，周末写日常病程
-      if (status.eventTypeKey === 'admission') {
-        const dayFromAdmission = diffDaysInternal(date, patient.admissionDate)
-        if (dayFromAdmission === 1) {
-          if (isWeekend(date)) {
-            // 周末：只保留「写日常病程」任务
-            if (task.title === '写副主任查房') continue
-          } else {
-            // 工作日：只保留「写副主任查房」任务
-            if (task.title === '写日常病程') continue
-          }
-        }
-
-        // 入院第三天且非工作日：追加日常病程
-        if (dayFromAdmission === 3 && isNonWorkday(date)) {
-          if (task.title === '写日常病程' && task.isHolidayDependent) {
-            // 允许通过（已在上面通过 holidayRule 过滤）
-          }
         }
       }
 
@@ -229,11 +207,4 @@ function matchRangeTasks(
   results.sort((a, b) => a.order - b.order)
 
   return results.map(r => ({ task: r.task, statusLabel: r.statusLabel }))
-}
-
-/** 内部日期差值计算 */
-function diffDaysInternal(date1: string, date2: string): number {
-  const d1 = new Date(date1 + 'T00:00:00')
-  const d2 = new Date(date2 + 'T00:00:00')
-  return Math.round((d1.getTime() - d2.getTime()) / (1000 * 60 * 60 * 24))
 }

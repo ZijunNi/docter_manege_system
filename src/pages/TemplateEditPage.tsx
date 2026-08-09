@@ -227,10 +227,13 @@ export function TemplateEditPage() {
         for (const task of range.tasks) {
           const taskData: Omit<EventRangeTask, 'id'> = {
             eventRangeId: rangeId,
+            key: task.data.key || undefined,
             title: task.data.title || '',
             description: task.data.description || undefined,
             category: task.data.category || TaskCategory.OTHER,
-            weekday: task.data.weekday ?? null,
+            weekdays: task.data.weekdays || [],
+            onlyOnWorkday: task.data.onlyOnWorkday || false,
+            onlyOnNonWorkday: task.data.onlyOnNonWorkday || false,
             isHolidayDependent: task.data.isHolidayDependent || false,
             holidayRule: task.data.holidayRule || null,
             isOnceOnly: task.data.isOnceOnly || false,
@@ -321,7 +324,9 @@ export function TemplateEditPage() {
           data: {
             title: '',
             category: TaskCategory.OTHER,
-            weekday: null,
+            weekdays: [],
+            onlyOnWorkday: false,
+            onlyOnNonWorkday: false,
             isHolidayDependent: false,
             holidayRule: null,
             isOnceOnly: false,
@@ -584,26 +589,42 @@ export function TemplateEditPage() {
                                 </select>
                               </div>
 
-                              {/* Weekday */}
+                              {/* Weekday 多选 */}
                               <div className="flex flex-col gap-1">
-                                <label className="text-xs text-gray-400">周几</label>
-                                <select
-                                  value={task.data.weekday === null ? 'null' : task.data.weekday}
-                                  onChange={e => {
-                                    const v = e.target.value
-                                    updateTaskField(range.tempId, task.tempId, 'weekday', v === 'null' ? null : parseInt(v))
-                                  }}
-                                  className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
-                                >
-                                  <option value="null">每天</option>
-                                  <option value="0">周日</option>
-                                  <option value="1">周一</option>
-                                  <option value="2">周二</option>
-                                  <option value="3">周三</option>
-                                  <option value="4">周四</option>
-                                  <option value="5">周五</option>
-                                  <option value="6">周六</option>
-                                </select>
+                                <label className="text-xs text-gray-400">每周</label>
+                                <div className="flex flex-wrap gap-1">
+                                  {[
+                                    { value: 1, label: '一' },
+                                    { value: 2, label: '二' },
+                                    { value: 3, label: '三' },
+                                    { value: 4, label: '四' },
+                                    { value: 5, label: '五' },
+                                    { value: 6, label: '六' },
+                                    { value: 0, label: '日' },
+                                  ].map(({ value, label }) => {
+                                    const weekdays = task.data.weekdays || []
+                                    const active = weekdays.includes(value)
+                                    return (
+                                      <button
+                                        key={value}
+                                        type="button"
+                                        onClick={() => {
+                                          const next = active
+                                            ? weekdays.filter((d: number) => d !== value)
+                                            : [...weekdays, value]
+                                          updateTaskField(range.tempId, task.tempId, 'weekdays', next)
+                                        }}
+                                        className={`w-8 h-7 text-xs rounded border transition-colors ${
+                                          active
+                                            ? 'bg-blue-600 text-white border-blue-600'
+                                            : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400'
+                                        }`}
+                                      >
+                                        {label}
+                                      </button>
+                                    )
+                                  })}
+                                </div>
                               </div>
                             </div>
 
@@ -635,6 +656,36 @@ export function TemplateEditPage() {
                                   <option value={HolidayRule.NON_WORKDAY}>周末及节假日</option>
                                 </select>
                               )}
+
+                              {/* 仅工作日 / 仅非工作日 */}
+                              <label className="flex items-center gap-1 text-xs text-gray-500">
+                                <input
+                                  type="checkbox"
+                                  checked={task.data.onlyOnWorkday || false}
+                                  onChange={e => {
+                                    updateTaskField(range.tempId, task.tempId, 'onlyOnWorkday', e.target.checked)
+                                    if (e.target.checked) {
+                                      updateTaskField(range.tempId, task.tempId, 'onlyOnNonWorkday', false)
+                                    }
+                                  }}
+                                  className="rounded"
+                                />
+                                仅工作日
+                              </label>
+                              <label className="flex items-center gap-1 text-xs text-gray-500">
+                                <input
+                                  type="checkbox"
+                                  checked={task.data.onlyOnNonWorkday || false}
+                                  onChange={e => {
+                                    updateTaskField(range.tempId, task.tempId, 'onlyOnNonWorkday', e.target.checked)
+                                    if (e.target.checked) {
+                                      updateTaskField(range.tempId, task.tempId, 'onlyOnWorkday', false)
+                                    }
+                                  }}
+                                  className="rounded"
+                                />
+                                仅非工作日
+                              </label>
 
                               {/* 一次性任务 */}
                               <label className="flex items-center gap-1 text-xs text-gray-500">
