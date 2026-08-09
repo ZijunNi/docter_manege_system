@@ -7,9 +7,10 @@ import { EmptyTaskState } from './EmptyTaskState'
 interface TaskListProps {
   tasks: Task[]
   onToggle: (taskId: number) => void
+  onDeleteTemporary?: (templateKey: string) => void
 }
 
-export function TaskList({ tasks, onToggle }: TaskListProps) {
+export function TaskList({ tasks, onToggle, onDeleteTemporary }: TaskListProps) {
   if (tasks.length === 0) {
     return <EmptyTaskState />
   }
@@ -31,6 +32,7 @@ export function TaskList({ tasks, onToggle }: TaskListProps) {
               key={task.id}
               task={task}
               onToggle={() => onToggle(task.id!)}
+              onDeleteTemporary={onDeleteTemporary}
             />
           ))}
         </TaskGroup>

@@ -39,36 +39,52 @@ async function seedBuiltInEventTypes(tx: { table: (name: string) => { add: (item
   }
 }
 
+// 模块级锁，防止 StrictMode 双挂载导致并发播种
+let seeding: Promise<void> | null = null
+
 /**
  * 确保数据库中已有内置事件模板。
  * 在应用启动时调用，覆盖两种场景：
- * - 全新安装（v7 直接创建，upgrade 未运行）
- * - v6→v7 迁移后数据已存在（幂等，count > 0 则跳过）
+ * - 全新安装（直接创建最新版本 DB，upgrade 未运行）
+ * - 旧版本迁移后数据已存在（幂等，检查 key 去重）
  */
 export async function ensureSeedData(): Promise<void> {
-  const count = await db.eventTypes.count()
-  if (count > 0) return  // 已播种，跳过
+  if (seeding) {
+    await seeding
+    return
+  }
 
-  // 全新数据库：插入内置事件模板
-  const now = Date.now()
-  for (const seed of seedEventTypes) {
-    const eventTypeId = await db.eventTypes.add({
-      ...seed.eventType,
-      createdAt: now,
-      updatedAt: now,
-    }) as number
-    for (const rangeSeed of seed.ranges) {
-      const rangeId = await db.eventRanges.add({
-        ...rangeSeed.range,
-        eventTypeId,
+  seeding = (async () => {
+    const now = Date.now()
+    for (const seed of seedEventTypes) {
+      // 逐 key 检查去重，而非依赖总 count（StrictMode 下并发调用时更安全）
+      const exists = await db.eventTypes.where('key').equals(seed.eventType.key).first()
+      if (exists) continue
+
+      const eventTypeId = await db.eventTypes.add({
+        ...seed.eventType,
+        createdAt: now,
+        updatedAt: now,
       }) as number
-      for (const taskSeed of rangeSeed.tasks) {
-        await db.eventRangeTasks.add({
-          ...taskSeed,
-          eventRangeId: rangeId,
-        })
+      for (const rangeSeed of seed.ranges) {
+        const rangeId = await db.eventRanges.add({
+          ...rangeSeed.range,
+          eventTypeId,
+        }) as number
+        for (const taskSeed of rangeSeed.tasks) {
+          await db.eventRangeTasks.add({
+            ...taskSeed,
+            eventRangeId: rangeId,
+          })
+        }
       }
     }
+  })()
+
+  try {
+    await seeding
+  } finally {
+    seeding = null
   }
 }
 
@@ -194,6 +210,31 @@ db.version(8).stores({
         }
       }
     }
+  }
+})
+
+// v9: 插入隐藏的「临时待办」事件类型
+db.version(9).stores({
+  patients: '++id, isArchived, admissionDate',
+  tasks: '++id, patientId, date, [patientId+date]',
+  eventTypes: '++id, key',
+  eventRanges: '++id, eventTypeId',
+  eventRangeTasks: '++id, eventRangeId',
+  patientEvents: '++id, patientId, eventTypeId, [patientId+eventTypeId]',
+}).upgrade(async tx => {
+  const exists = await tx.table('eventTypes').where('key').equals('temporary').first()
+  if (!exists) {
+    await tx.table('eventTypes').add({
+      name: '临时待办',
+      key: 'temporary',
+      icon: '📌',
+      color: 'border-l-gray-400 bg-gray-100',
+      isBuiltIn: true,
+      isActive: true,
+      order: 99,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    })
   }
 })
 

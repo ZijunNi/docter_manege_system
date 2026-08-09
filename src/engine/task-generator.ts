@@ -104,6 +104,25 @@ async function generateTasksForPatientInternal(
     date, activeStatuses, allEventRangeTasks, completedOnceKeys
   )
 
+  // 处理临时待办事件：无预定义 range，直接从 PatientEvent 的自定义字段生成 Task
+  const temporaryType = activeEventTypes.find(et => et.key === 'temporary')
+  const temporaryTasks: Array<{ title: string; description?: string; category: string; statusLabel: string; order: number; _peId?: number }> = []
+  if (temporaryType) {
+    const tempEvents = patientEvents.filter(pe =>
+      pe.eventTypeId === temporaryType.id && pe.eventDate === date && pe.customTitle
+    )
+    for (const pe of tempEvents) {
+      temporaryTasks.push({
+        title: pe.customTitle!,
+        description: pe.customDescription,
+        category: pe.customCategory || 'temporary',
+        statusLabel: '临时',
+        order: -1,   // 置顶，排在所有模板任务之前
+        _peId: pe.id,
+      })
+    }
+  }
+
   // 查询今日已有任务（用于保留完成状态）
   const existingTasks = await db.tasks
     .where('[patientId+date]')
@@ -115,7 +134,7 @@ async function generateTasksForPatientInternal(
     completedMap.set(t.title, t.isCompleted)
   }
 
-  // 生成 Task 记录
+  // 生成模板 Task 记录
   const newTasks: Task[] = matchedTasks.map(({ task, statusLabel }, index) => ({
     patientId: patient.id!,
     patientName: patient.name,
@@ -130,6 +149,25 @@ async function generateTasksForPatientInternal(
     order: index,
     templateKey: task.isOnceOnly ? `range:${task.eventRangeId}:${task.title}` : undefined,
   }))
+
+  // 追加临时待办 Task
+  for (let ti = 0; ti < temporaryTasks.length; ti++) {
+    const tt = temporaryTasks[ti]
+    newTasks.push({
+      patientId: patient.id!,
+      patientName: patient.name,
+      date,
+      title: tt.title,
+      description: tt.description,
+      category: tt.category as Task['category'],
+      statusLabel: tt.statusLabel,
+      isCompleted: completedMap.get(tt.title) || false,
+      completedAt: completedMap.get(tt.title) ? Date.now() : undefined,
+      createdAt: Date.now(),
+      order: tt.order,
+      templateKey: tt._peId ? `temp:${tt._peId}` : undefined,
+    })
+  }
 
   // 原子替换：删除旧任务，写入新任务
   if (existingTasks.length > 0) {

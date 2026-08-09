@@ -11,9 +11,15 @@
     "preview": "vite preview",
     "preview:local": "npm run build:local && vite preview --host",
     "predeploy": "npm run build",
-    "deploy": "gh-pages -d dist"
+    "deploy": "gh-pages -d dist",
+    "build:capacitor": "vite build --base=./",
+    "cap:sync": "npm run build:capacitor && npx cap sync",
+    "cap:open": "npx cap open android"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/cli": "^8.5.0",
+    "@capacitor/core": "^8.5.0",
     "dexie": "^4.4.4",
     "dexie-react-hooks": "^4.4.0",
     "react": "^19.2.8",

@@ -138,7 +138,8 @@ export async function getEventsByPatientId(patientId: number): Promise<PatientEv
 export async function addPatientEvent(
   patientId: number,
   eventTypeId: number,
-  eventDate: string
+  eventDate: string,
+  extra?: { customTitle?: string; customDescription?: string; customCategory?: import('../types/enums').TaskCategory }
 ): Promise<number> {
   const now = Date.now()
 
@@ -150,6 +151,9 @@ export async function addPatientEvent(
   if (existing) {
     await db.patientEvents.update(existing.id!, {
       eventDate,
+      customTitle: extra?.customTitle,
+      customDescription: extra?.customDescription,
+      customCategory: extra?.customCategory,
       updatedAt: now,
     })
     return existing.id!
@@ -159,6 +163,9 @@ export async function addPatientEvent(
     patientId,
     eventTypeId,
     eventDate,
+    customTitle: extra?.customTitle,
+    customDescription: extra?.customDescription,
+    customCategory: extra?.customCategory,
     createdAt: now,
     updatedAt: now,
   } as PatientEvent) as number
@@ -186,4 +193,38 @@ export async function removePatientEventByType(
     .where('[patientId+eventTypeId]')
     .equals([patientId, eventTypeId])
     .delete()
+}
+
+/**
+ * 为患者添加一个临时待办（自动查找 temporary 事件类型）
+ */
+export async function addTemporaryTask(
+  patientId: number,
+  eventDate: string,
+  title: string,
+  description?: string,
+  category?: import('../types/enums').TaskCategory
+): Promise<number> {
+  const tempType = await db.eventTypes.where('key').equals('temporary').first()
+  if (!tempType) throw new Error('临时待办事件类型未找到，请刷新页面后重试')
+
+  // 临时待办允许多条共存，直接插入，不经 addPatientEvent（那条有 update-if-exists 逻辑）
+  const now = Date.now()
+  return await db.patientEvents.add({
+    patientId,
+    eventTypeId: tempType.id!,
+    eventDate,
+    customTitle: title,
+    customDescription: description,
+    customCategory: category,
+    createdAt: now,
+    updatedAt: now,
+  } as import('../types/event').PatientEvent) as number
+}
+
+/**
+ * 删除指定 PatientEvent 及其生成的临时任务
+ */
+export async function removeTemporaryTask(patientEventId: number): Promise<void> {
+  await db.patientEvents.delete(patientEventId)
 }

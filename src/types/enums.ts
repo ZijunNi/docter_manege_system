@@ -6,6 +6,7 @@ export enum TaskCategory {
   ECG            = 'ecg',
   SURGERY        = 'surgery',
   DISCHARGE      = 'discharge',
+  TEMPORARY      = 'temporary',
   OTHER          = 'other',
 }
 
@@ -17,6 +18,7 @@ export const TaskCategoryLabel: Record<TaskCategory, string> = {
   [TaskCategory.ECG]:            '心电图',
   [TaskCategory.SURGERY]:        '手术',
   [TaskCategory.DISCHARGE]:      '出院',
+  [TaskCategory.TEMPORARY]:      '临时',
   [TaskCategory.OTHER]:          '其他',
 }
 

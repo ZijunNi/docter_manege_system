@@ -223,4 +223,20 @@ export const seedEventTypes: SeedEventType[] = [
       },
     ],
   },
+
+  // ========================================
+  // 临时待办事件（隐藏，用户不可见）
+  // ========================================
+  {
+    eventType: {
+      name: '临时待办',
+      key: 'temporary',
+      icon: '📌',
+      color: 'border-l-gray-400 bg-gray-100',
+      isBuiltIn: true,
+      isActive: true,
+      order: 99,
+    },
+    ranges: [],  // 无预定义 range，由生成器特殊处理
+  },
 ]

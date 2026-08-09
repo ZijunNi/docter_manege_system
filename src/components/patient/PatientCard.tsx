@@ -26,7 +26,13 @@ export function PatientCard({ patient, completedCount, totalCount }: PatientCard
   const { events, eventTypes: eventTypeMap } = usePatientEvents(patient.id!)
   const { eventTypes: activeTypes } = useActiveEventTypes()
 
-  const nonAdmissionTypes = activeTypes.filter(et => et.key !== 'admission')
+  const nonAdmissionTypes = activeTypes.filter(et => et.key !== 'admission' && et.key !== 'temporary')
+
+  // 今天的临时待办数量
+  const todayTempCount = events.filter(pe => {
+    const et = eventTypeMap.get(pe.eventTypeId)
+    return et?.key === 'temporary' && pe.eventDate === today()
+  }).length
 
   // 颜色：从 primary status 获取，或使用默认
   const colorClass = primary?.color || 'border-l-gray-300 bg-white'
@@ -143,12 +149,15 @@ export function PatientCard({ patient, completedCount, totalCount }: PatientCard
           </div>
         </div>
 
-        <div className="flex items-center gap-3 text-xs text-gray-500 mb-2">
+        <div className="flex items-center gap-3 text-xs text-gray-500 mb-2 flex-wrap">
           <span>入院: {formatDisplayDate(patient.admissionDate)}</span>
           <span>第 {days + 1} 天</span>
+          {todayTempCount > 0 && (
+            <span className="text-gray-500">📌 临时×{todayTempCount}</span>
+          )}
           {events.map(pe => {
             const et = eventTypeMap.get(pe.eventTypeId)
-            if (!et) return null
+            if (!et || et.key === 'temporary') return null
             return (
               <span key={pe.id} className="flex items-center gap-0.5">
                 {et.icon} {et.name}: {formatDisplayDate(pe.eventDate)}

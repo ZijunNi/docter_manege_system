@@ -45,6 +45,9 @@ export interface PatientEvent {
   patientId: number
   eventTypeId: number
   eventDate: string               // "2026-08-10"
+  customTitle?: string            // 临时待办的自定义标题（仅 temporary 类型使用）
+  customDescription?: string      // 临时待办的自定义描述（仅 temporary 类型使用）
+  customCategory?: TaskCategory   // 临时待办的自定义分类（仅 temporary 类型使用）
   createdAt: number
   updatedAt: number
 }

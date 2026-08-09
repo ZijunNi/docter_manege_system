@@ -35,7 +35,7 @@ export function PatientForm({
 
   // 事件分配状态：{ [eventTypeKey]: date | null }
   const { eventTypes: activeTypes } = useActiveEventTypes()
-  const nonAdmissionTypes = activeTypes.filter(et => et.key !== 'admission' && et.isActive)
+  const nonAdmissionTypes = activeTypes.filter(et => et.key !== 'admission' && et.key !== 'temporary' && et.isActive)
 
   // 初始化事件日期（编辑模式）
   const [eventDates, setEventDates] = useState<Record<string, string>>(() => {

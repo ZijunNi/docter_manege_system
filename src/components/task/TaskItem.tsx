@@ -7,14 +7,16 @@ import { cn } from '../../utils/cn'
 interface TaskItemProps {
   task: Task
   onToggle: () => void
+  onDeleteTemporary?: (templateKey: string) => void
 }
 
-export function TaskItem({ task, onToggle }: TaskItemProps) {
+export function TaskItem({ task, onToggle, onDeleteTemporary }: TaskItemProps) {
   const { onTouchStart, onTouchEnd } = useSwipe({
     onSwipeLeft: onToggle,
   })
 
   const categoryLabel = TaskCategoryLabel[task.category] || task.category
+  const isTemporary = task.statusLabel === '临时'
 
   return (
     <div
@@ -37,9 +39,24 @@ export function TaskItem({ task, onToggle }: TaskItemProps) {
           <p className="text-xs text-gray-500 mt-0.5">{task.description}</p>
         )}
       </div>
-      <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded mt-0.5 flex-shrink-0">
+      <span className={cn(
+        'text-xs px-1.5 py-0.5 rounded mt-0.5 flex-shrink-0',
+        isTemporary ? 'text-gray-500 bg-gray-200' : 'text-gray-400 bg-gray-100'
+      )}>
         {categoryLabel}
       </span>
+      {isTemporary && onDeleteTemporary && (
+        <button
+          onClick={e => {
+            e.stopPropagation()
+            onDeleteTemporary(task.templateKey || task.title)
+          }}
+          className="text-gray-400 hover:text-red-500 text-sm font-bold px-1 flex-shrink-0"
+          title="删除临时待办"
+        >
+          ×
+        </button>
+      )}
     </div>
   )
 }

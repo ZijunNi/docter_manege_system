@@ -11,7 +11,8 @@ import { cn } from '../utils/cn'
 
 export function TemplateListPage() {
   const navigate = useNavigate()
-  const { eventTypes, loading } = useAllEventTypes()
+  const { eventTypes: allEventTypes, loading } = useAllEventTypes()
+  const eventTypes = allEventTypes.filter(et => et.key !== 'temporary')
   const [deleteTarget, setDeleteTarget] = useState<number | null>(null)
 
   const handleDelete = async () => {
