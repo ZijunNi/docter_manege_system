@@ -23,4 +23,5 @@ export const TaskCategoryLabel: Record<TaskCategory, string> = {
 export enum HolidayRule {
   BEFORE_HOLIDAY = 'before_holiday',
   NON_WORKDAY    = 'non_workday',
+  ONLY_WORKDAY   = 'only_workday',
 }

@@ -232,8 +232,6 @@ export function TemplateEditPage() {
             description: task.data.description || undefined,
             category: task.data.category || TaskCategory.OTHER,
             weekdays: task.data.weekdays || [],
-            onlyOnWorkday: task.data.onlyOnWorkday || false,
-            onlyOnNonWorkday: task.data.onlyOnNonWorkday || false,
             isHolidayDependent: task.data.isHolidayDependent || false,
             holidayRule: task.data.holidayRule || null,
             isOnceOnly: task.data.isOnceOnly || false,
@@ -325,8 +323,6 @@ export function TemplateEditPage() {
             title: '',
             category: TaskCategory.OTHER,
             weekdays: [],
-            onlyOnWorkday: false,
-            onlyOnNonWorkday: false,
             isHolidayDependent: false,
             holidayRule: null,
             isOnceOnly: false,
@@ -629,63 +625,29 @@ export function TemplateEditPage() {
                             </div>
 
                             <div className="flex items-center gap-4 flex-wrap">
-                              {/* 限定日期（原"假期依赖"） */}
-                              <label className="flex items-center gap-1 text-xs text-gray-500">
-                                <input
-                                  type="checkbox"
-                                  checked={task.data.isHolidayDependent || false}
-                                  onChange={e => {
-                                    updateTaskField(range.tempId, task.tempId, 'isHolidayDependent', e.target.checked)
-                                    if (!e.target.checked) {
-                                      updateTaskField(range.tempId, task.tempId, 'holidayRule', null)
-                                    }
-                                  }}
-                                  className="rounded"
-                                />
-                                限定日期
-                              </label>
-
-                              {task.data.isHolidayDependent && (
+                              {/* 日期限定 */}
+                              <div className="flex flex-col gap-1">
+                                <label className="text-xs text-gray-400">日期限定</label>
                                 <select
-                                  value={task.data.holidayRule || ''}
-                                  onChange={e => updateTaskField(range.tempId, task.tempId, 'holidayRule', e.target.value || null)}
-                                  className="px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none"
+                                  value={task.data.isHolidayDependent && task.data.holidayRule ? task.data.holidayRule : ''}
+                                  onChange={e => {
+                                    const v = e.target.value
+                                    if (v === '') {
+                                      updateTaskField(range.tempId, task.tempId, 'isHolidayDependent', false)
+                                      updateTaskField(range.tempId, task.tempId, 'holidayRule', null)
+                                    } else {
+                                      updateTaskField(range.tempId, task.tempId, 'isHolidayDependent', true)
+                                      updateTaskField(range.tempId, task.tempId, 'holidayRule', v)
+                                    }
+                                  }}
+                                  className="px-2 py-1.5 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
                                 >
-                                  <option value="">选择条件</option>
+                                  <option value="">不限定</option>
+                                  <option value={HolidayRule.ONLY_WORKDAY}>仅工作日</option>
+                                  <option value={HolidayRule.NON_WORKDAY}>仅非工作日</option>
                                   <option value={HolidayRule.BEFORE_HOLIDAY}>节假日前一天</option>
-                                  <option value={HolidayRule.NON_WORKDAY}>周末及节假日</option>
                                 </select>
-                              )}
-
-                              {/* 仅工作日 / 仅非工作日 */}
-                              <label className="flex items-center gap-1 text-xs text-gray-500">
-                                <input
-                                  type="checkbox"
-                                  checked={task.data.onlyOnWorkday || false}
-                                  onChange={e => {
-                                    updateTaskField(range.tempId, task.tempId, 'onlyOnWorkday', e.target.checked)
-                                    if (e.target.checked) {
-                                      updateTaskField(range.tempId, task.tempId, 'onlyOnNonWorkday', false)
-                                    }
-                                  }}
-                                  className="rounded"
-                                />
-                                仅工作日
-                              </label>
-                              <label className="flex items-center gap-1 text-xs text-gray-500">
-                                <input
-                                  type="checkbox"
-                                  checked={task.data.onlyOnNonWorkday || false}
-                                  onChange={e => {
-                                    updateTaskField(range.tempId, task.tempId, 'onlyOnNonWorkday', e.target.checked)
-                                    if (e.target.checked) {
-                                      updateTaskField(range.tempId, task.tempId, 'onlyOnWorkday', false)
-                                    }
-                                  }}
-                                  className="rounded"
-                                />
-                                仅非工作日
-                              </label>
+                              </div>
 
                               {/* 一次性任务 */}
                               <label className="flex items-center gap-1 text-xs text-gray-500">

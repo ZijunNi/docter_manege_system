@@ -33,8 +33,6 @@ export interface EventRangeTask {
   description?: string
   category: TaskCategory
   weekdays: number[]              // 空数组=每天，[1,3,5]=周一三五，0=周日
-  onlyOnWorkday: boolean          // 仅在自然工作日出现
-  onlyOnNonWorkday: boolean       // 仅在自然非工作日出现
   isHolidayDependent: boolean
   holidayRule: HolidayRule | null
   isOnceOnly: boolean             // 一次性任务，完成不再出现

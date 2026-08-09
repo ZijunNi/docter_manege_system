@@ -174,11 +174,7 @@ function matchRangeTasks(
       // 2. 星期几过滤（多选，空数组=每天）
       if (task.weekdays.length > 0 && !task.weekdays.includes(weekday)) continue
 
-      // 3. 工作日/非工作日过滤
-      if (task.onlyOnWorkday && isNonWorkday(date)) continue
-      if (task.onlyOnNonWorkday && isWorkday(date)) continue
-
-      // 4. 假期条件过滤
+      // 3. 日期限定过滤
       if (task.isHolidayDependent && task.holidayRule) {
         switch (task.holidayRule) {
           case 'before_holiday':
@@ -186,6 +182,9 @@ function matchRangeTasks(
             break
           case 'non_workday':
             if (!isNonWorkday(date)) continue
+            break
+          case 'only_workday':
+            if (!isWorkday(date)) continue
             break
         }
       }
