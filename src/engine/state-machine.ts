@@ -1,7 +1,7 @@
 import type { Patient } from '../types/patient'
 import type { EventType, EventRange, PatientEvent, ActiveStatus } from '../types/event'
 import { diffDays } from '../utils/date'
-import { countWorkdaysBetween } from './holiday-utils'
+import { countWorkdaysBetween, isNonWorkday } from './holiday-utils'
 
 /**
  * 获取患者在当前日期的所有活跃状态（EventRange 级别的叠加）
@@ -60,7 +60,8 @@ export function getActiveStatuses(
       let dayOffset: number
 
       if (range.useWorkdayOffset) {
-        // 按工作日计数
+        // 按工作日计数：目标日期必须是工作日，否则不应匹配
+        if (isNonWorkday(targetDate)) continue
         dayOffset = countWorkdaysBetween(pe.eventDate, targetDate)
       } else {
         // 按自然日计数
