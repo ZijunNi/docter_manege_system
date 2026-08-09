@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Header } from '../components/layout/Header'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
+import { BatchImportModal } from '../components/patient/BatchImportModal'
 import { db } from '../db'
 import { isDevModeEnabled, setDevModeEnabled, getOverrideDate, setOverrideDate } from '../utils/devmode'
 import { today, realToday } from '../utils/date'
@@ -8,6 +9,7 @@ import { generateDailyTasks } from '../engine/task-generator'
 
 export function SettingsPage() {
   const [showClearDialog, setShowClearDialog] = useState(false)
+  const [showBatchImport, setShowBatchImport] = useState(false)
   const [devMode, setDevMode] = useState(() => isDevModeEnabled())
   const [overrideDate, setOverrideDateState] = useState(() => getOverrideDate() || realToday())
 
@@ -140,6 +142,12 @@ export function SettingsPage() {
         </div>
 
         <button
+          onClick={() => setShowBatchImport(true)}
+          className="w-full py-3 text-left px-4 bg-white rounded-lg shadow-sm border border-gray-100 text-gray-900 hover:bg-gray-50 transition-colors"
+        >
+          📋 批量导入患者
+        </button>
+        <button
           onClick={handleExport}
           className="w-full py-3 text-left px-4 bg-white rounded-lg shadow-sm border border-gray-100 text-gray-900 hover:bg-gray-50 transition-colors"
         >
@@ -167,6 +175,16 @@ export function SettingsPage() {
           </p>
         </div>
       </div>
+
+      <BatchImportModal
+        isOpen={showBatchImport}
+        onClose={() => setShowBatchImport(false)}
+        onImported={() => {
+          generateDailyTasks().then(() => {
+            window.location.reload()
+          })
+        }}
+      />
 
       <ConfirmDialog
         isOpen={showClearDialog}
