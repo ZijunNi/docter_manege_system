@@ -26,6 +26,22 @@ export function PatientList({ patients, loading, emptyMessage = '暂无患者' }
     return map
   }, [allTasks])
 
+  // 排序：今日任务全部完成的患者排到最后，其余患者保持原有排序
+  const sortedPatients = useMemo(() => {
+    const allDone = new Set<string>()
+    const notAllDone: Patient[] = []
+    const donePatients: Patient[] = []
+    for (const p of patients) {
+      const stats = taskStats.get(p.id!)
+      if (stats && stats.total > 0 && stats.total === stats.completed) {
+        donePatients.push(p)
+      } else {
+        notAllDone.push(p)
+      }
+    }
+    return [...notAllDone, ...donePatients]
+  }, [patients, taskStats])
+
   if (loading || tasksLoading) {
     return <LoadingSpinner />
   }
@@ -36,7 +52,7 @@ export function PatientList({ patients, loading, emptyMessage = '暂无患者' }
 
   return (
     <div className="flex flex-col gap-3 px-4 py-4">
-      {patients.map(patient => {
+      {sortedPatients.map(patient => {
         const stats = taskStats.get(patient.id!)
         return (
           <PatientCard
