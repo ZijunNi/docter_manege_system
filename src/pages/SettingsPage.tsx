@@ -15,13 +15,24 @@ export function SettingsPage() {
 
   const handleExport = async () => {
     try {
-      const patients = await db.patients.toArray()
-      const tasks = await db.tasks.toArray()
+      const [patients, tasks, eventTypes, eventRanges, eventRangeTasks, patientEvents] =
+        await Promise.all([
+          db.patients.toArray(),
+          db.tasks.toArray(),
+          db.eventTypes.toArray(),
+          db.eventRanges.toArray(),
+          db.eventRangeTasks.toArray(),
+          db.patientEvents.toArray(),
+        ])
       const data = {
-        version: 1,
+        version: 2,
         exportDate: new Date().toISOString(),
         patients,
         tasks,
+        eventTypes,
+        eventRanges,
+        eventRangeTasks,
+        patientEvents,
       }
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
       const url = URL.createObjectURL(blob)
@@ -46,22 +57,49 @@ export function SettingsPage() {
       try {
         const text = await file.text()
         const data = JSON.parse(text)
+
+        // patients & tasks — 始终处理（v1 和 v2 都包含）
         if (data.patients) {
           for (const p of data.patients) {
             const exists = await db.patients.get(p.id)
-            if (!exists) {
-              await db.patients.add(p)
-            }
+            if (!exists) await db.patients.add(p)
           }
         }
         if (data.tasks) {
           for (const t of data.tasks) {
             const exists = await db.tasks.get(t.id)
-            if (!exists) {
-              await db.tasks.add(t)
-            }
+            if (!exists) await db.tasks.add(t)
           }
         }
+
+        // 事件表 — v2 新增，向后兼容旧备份
+        if (data.eventTypes?.length) {
+          for (const et of data.eventTypes) {
+            const exists = await db.eventTypes.get(et.id)
+            if (!exists) await db.eventTypes.add(et)
+          }
+        }
+        if (data.eventRanges?.length) {
+          for (const er of data.eventRanges) {
+            const exists = await db.eventRanges.get(er.id)
+            if (!exists) await db.eventRanges.add(er)
+          }
+        }
+        if (data.eventRangeTasks?.length) {
+          for (const ert of data.eventRangeTasks) {
+            const exists = await db.eventRangeTasks.get(ert.id)
+            if (!exists) await db.eventRangeTasks.add(ert)
+          }
+        }
+        if (data.patientEvents?.length) {
+          for (const pe of data.patientEvents) {
+            const exists = await db.patientEvents.get(pe.id)
+            if (!exists) await db.patientEvents.add(pe)
+          }
+        }
+
+        // 导入后刷新任务
+        await generateDailyTasks()
         alert('导入成功！')
         window.location.reload()
       } catch (err) {
@@ -73,8 +111,14 @@ export function SettingsPage() {
   }
 
   const handleClearAll = async () => {
-    await db.patients.clear()
-    await db.tasks.clear()
+    await Promise.all([
+      db.patients.clear(),
+      db.tasks.clear(),
+      db.eventTypes.clear(),
+      db.eventRanges.clear(),
+      db.eventRangeTasks.clear(),
+      db.patientEvents.clear(),
+    ])
     window.location.reload()
   }
 

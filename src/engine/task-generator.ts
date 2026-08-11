@@ -88,20 +88,26 @@ async function generateTasksForPatientInternal(
     patient, patientEvents, activeEventTypes, eventRanges, date
   )
 
-  // 查询该患者历史上已完成的一次性任务（跨日期）
+  // 查询该患者历史上已完成的一次性任务
+  // 合并两个来源：DB 中现存记录 + localStorage 持久化记录
+  // localStorage 用于防止"删旧写新"后历史记录丢失导致已完成任务复活
+  const storageKey = `completedOnce:${patient.id}`
+  const storedKeys: string[] = JSON.parse(localStorage.getItem(storageKey) || '[]')
+  const persistedOnceKeys = new Set(storedKeys)
+
   const allPatientTasks = await db.tasks
     .where('patientId')
     .equals(patient.id!)
     .toArray()
-  const completedOnceKeys = new Set(
-    allPatientTasks
-      .filter(t => t.isCompleted && t.templateKey)
-      .map(t => t.templateKey!)
-  )
+  for (const t of allPatientTasks) {
+    if (t.isCompleted && t.templateKey) {
+      persistedOnceKeys.add(t.templateKey)
+    }
+  }
 
   // 匹配任务：每个活跃 status 贡献其 range 下的所有 tasks
   const matchedTasks = matchRangeTasks(
-    date, activeStatuses, allEventRangeTasks, completedOnceKeys
+    date, activeStatuses, allEventRangeTasks, persistedOnceKeys
   )
 
   // 处理临时待办事件：无预定义 range，直接从 PatientEvent 的自定义字段生成 Task
@@ -171,6 +177,15 @@ async function generateTasksForPatientInternal(
 
   // 原子替换：删除旧任务，写入新任务
   if (existingTasks.length > 0) {
+    // 在删除前，将已完成的一次性任务 key 持久化到 localStorage
+    // 防止下一轮运行时因 DB 记录被删导致"遗忘"已完成状态
+    for (const t of existingTasks) {
+      if (t.isCompleted && t.templateKey && t.templateKey.startsWith('range:')) {
+        persistedOnceKeys.add(t.templateKey)
+      }
+    }
+    localStorage.setItem(storageKey, JSON.stringify([...persistedOnceKeys]))
+
     await db.tasks
       .where('[patientId+date]')
       .equals([patient.id!, date])
