@@ -13,7 +13,7 @@ export function TemplateListPage() {
   const navigate = useNavigate()
   const { eventTypes: allEventTypes, loading } = useAllEventTypes()
   const eventTypes = allEventTypes.filter(et => et.key !== 'temporary')
-  const [deleteTarget, setDeleteTarget] = useState<number | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
 
   const handleDelete = async () => {
     if (deleteTarget === null) return

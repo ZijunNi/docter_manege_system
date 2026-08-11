@@ -2,9 +2,9 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db'
 import type { PatientEvent, EventType } from '../types/event'
 
-export function usePatientEvents(patientId: number): {
+export function usePatientEvents(patientId: string): {
   events: PatientEvent[]
-  eventTypes: Map<number, EventType>
+  eventTypes: Map<string, EventType>
   loading: boolean
 } {
   const data = useLiveQuery(
@@ -16,7 +16,7 @@ export function usePatientEvents(patientId: number): {
 
       const eventTypeIds = [...new Set(events.map(e => e.eventTypeId))]
       const types = await db.eventTypes.bulkGet(eventTypeIds)
-      const typeMap = new Map<number, EventType>()
+      const typeMap = new Map<string, EventType>()
       for (const t of types) {
         if (t) typeMap.set(t.id!, t)
       }

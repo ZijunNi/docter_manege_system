@@ -8,7 +8,7 @@ import { EmptyState } from '../components/ui/EmptyState'
 export function PatientDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const { patient, loading } = usePatient(Number(id))
+  const { patient, loading } = usePatient(id || '')
 
   return (
     <div>

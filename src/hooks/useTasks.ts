@@ -3,7 +3,7 @@ import { db } from '../db'
 import type { Task } from '../types/task'
 import { today } from '../utils/date'
 
-export function useTodayTasks(patientId: number): {
+export function useTodayTasks(patientId: string): {
   tasks: Task[]
   loading: boolean
   total: number

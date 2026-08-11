@@ -1,7 +1,7 @@
 import type { TaskCategory, HolidayRule } from './enums'
 
 export interface EventType {
-  id?: number
+  id: string
   name: string                    // "手术"
   key: string                     // "surgery" — 唯一标识
   icon: string                    // "🔪"
@@ -14,8 +14,9 @@ export interface EventType {
 }
 
 export interface EventRange {
-  id?: number
-  eventTypeId: number
+  id: string
+  eventTypeId: string
+  key: string                     // 在所属事件类型内唯一且不可变
   name: string                    // "术前准备期"
   statusLabel: string             // 用作 Task 的分组标签
   color: string                   // "border-l-blue-500 bg-blue-50"
@@ -26,9 +27,9 @@ export interface EventRange {
 }
 
 export interface EventRangeTask {
-  id?: number
-  eventRangeId: number
-  key?: string                    // 可选的语义标识符，供代码引用（不依赖可变标题）
+  id: string
+  eventRangeId: string
+  key: string                     // 在所属范围内唯一且不可变
   title: string
   description?: string
   category: TaskCategory
@@ -41,9 +42,9 @@ export interface EventRangeTask {
 }
 
 export interface PatientEvent {
-  id?: number
-  patientId: number
-  eventTypeId: number
+  id: string
+  patientId: string
+  eventTypeId: string
   eventDate: string               // "2026-08-10"
   customTitle?: string            // 临时待办的自定义标题（仅 temporary 类型使用）
   customDescription?: string      // 临时待办的自定义描述（仅 temporary 类型使用）
@@ -54,8 +55,9 @@ export interface PatientEvent {
 
 /** getActiveStatuses 的返回值：一个匹配的 EventRange 信息 */
 export interface ActiveStatus {
-  eventRangeId: number
-  eventTypeId: number
+  eventRangeId: string
+  eventTypeId: string
+  sourceEventId: string
   eventTypeName: string
   eventTypeIcon: string
   eventTypeKey: string

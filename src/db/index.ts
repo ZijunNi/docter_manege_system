@@ -1,85 +1,80 @@
 import Dexie, { type EntityTable } from 'dexie'
 import type { Patient } from '../types/patient'
-import type { Task } from '../types/task'
+import type { OnceTaskCompletion, Task } from '../types/task'
 import type { EventType, EventRange, EventRangeTask, PatientEvent } from '../types/event'
 import { seedEventTypes } from './seed-events'
 
-interface ResidentScheduleDB extends Dexie {
+export const STABLE_DB_NAME = 'ResidentScheduleDBStable'
+export const LEGACY_DB_NAME = 'ResidentScheduleDB'
+
+export interface DatabaseMeta {
+  key: string
+  value: unknown
+  updatedAt: number
+}
+
+export interface ResidentScheduleDB extends Dexie {
   patients: EntityTable<Patient, 'id'>
   tasks: EntityTable<Task, 'id'>
   eventTypes: EntityTable<EventType, 'id'>
   eventRanges: EntityTable<EventRange, 'id'>
   eventRangeTasks: EntityTable<EventRangeTask, 'id'>
   patientEvents: EntityTable<PatientEvent, 'id'>
+  onceTaskCompletions: EntityTable<OnceTaskCompletion, 'id'>
+  meta: EntityTable<DatabaseMeta, 'key'>
 }
 
-const db = new Dexie('ResidentScheduleDB') as ResidentScheduleDB
+const db = new Dexie(STABLE_DB_NAME) as ResidentScheduleDB
 
-/** 插入内置事件模板（在 upgrade 中复用） */
-async function seedBuiltInEventTypes(tx: { table: (name: string) => { add: (item: unknown) => Promise<number> } }) {
-  const now = Date.now()
-  for (const seed of seedEventTypes) {
-    const eventTypeId = await tx.table('eventTypes').add({
-      ...seed.eventType,
-      createdAt: now,
-      updatedAt: now,
-    })
-    for (const rangeSeed of seed.ranges) {
-      const rangeId = await tx.table('eventRanges').add({
-        ...rangeSeed.range,
-        eventTypeId,
-      })
-      for (const taskSeed of rangeSeed.tasks) {
-        await tx.table('eventRangeTasks').add({
-          ...taskSeed,
-          eventRangeId: rangeId,
-        })
-      }
-    }
-  }
-}
+db.version(1).stores({
+  patients: '&id, isArchived, admissionDate, updatedAt',
+  tasks: '&id, patientId, date, [patientId+date], sourceKey, updatedAt',
+  eventTypes: '&id, &key, isActive, order, updatedAt',
+  eventRanges: '&id, eventTypeId, &[eventTypeId+key], order',
+  eventRangeTasks: '&id, eventRangeId, &[eventRangeId+key], order',
+  patientEvents: '&id, patientId, eventTypeId, [patientId+eventTypeId], eventDate, updatedAt',
+  onceTaskCompletions: '&id, patientId, sourceKey, [patientId+completedDate]',
+  meta: '&key',
+})
 
-// 模块级锁，防止 StrictMode 双挂载导致并发播种
+db.version(2).stores({
+  patients: '&id, isArchived, admissionDate, updatedAt',
+  tasks: '&id, patientId, date, [patientId+date], sourceKey, sourceEventId, updatedAt',
+  eventTypes: '&id, &key, isActive, order, updatedAt',
+  eventRanges: '&id, eventTypeId, &[eventTypeId+key], order',
+  eventRangeTasks: '&id, eventRangeId, &[eventRangeId+key], order',
+  patientEvents: '&id, patientId, eventTypeId, [patientId+eventTypeId], eventDate, updatedAt',
+  onceTaskCompletions: '&id, patientId, sourceKey, sourceEventId, [patientId+completedDate]',
+  meta: '&key',
+})
+
 let seeding: Promise<void> | null = null
 
-/**
- * 确保数据库中已有内置事件模板。
- * 在应用启动时调用，覆盖两种场景：
- * - 全新安装（直接创建最新版本 DB，upgrade 未运行）
- * - 旧版本迁移后数据已存在（幂等，检查 key 去重）
- */
+/** 只补充完全缺失的强制内置事件；不会覆盖用户或备份对内置模板的修改。 */
 export async function ensureSeedData(): Promise<void> {
-  if (seeding) {
-    await seeding
-    return
-  }
+  if (seeding) return seeding
 
-  seeding = (async () => {
-    const now = Date.now()
-    for (const seed of seedEventTypes) {
-      // 逐 key 检查去重，而非依赖总 count（StrictMode 下并发调用时更安全）
-      const exists = await db.eventTypes.where('key').equals(seed.eventType.key).first()
-      if (exists) continue
+  seeding = db.transaction(
+    'rw',
+    db.eventTypes,
+    db.eventRanges,
+    db.eventRangeTasks,
+    async () => {
+      const now = Date.now()
+      for (const seed of seedEventTypes) {
+        if (await db.eventTypes.get(seed.eventType.id)) continue
 
-      const eventTypeId = await db.eventTypes.add({
-        ...seed.eventType,
-        createdAt: now,
-        updatedAt: now,
-      }) as number
-      for (const rangeSeed of seed.ranges) {
-        const rangeId = await db.eventRanges.add({
-          ...rangeSeed.range,
-          eventTypeId,
-        }) as number
-        for (const taskSeed of rangeSeed.tasks) {
-          await db.eventRangeTasks.add({
-            ...taskSeed,
-            eventRangeId: rangeId,
-          })
+        await db.eventTypes.add({ ...seed.eventType, createdAt: now, updatedAt: now })
+        for (const rangeSeed of seed.ranges) {
+          await db.eventRanges.add({ ...rangeSeed.range, eventTypeId: seed.eventType.id })
+          await db.eventRangeTasks.bulkAdd(rangeSeed.tasks.map(task => ({
+            ...task,
+            eventRangeId: rangeSeed.range.id,
+          })))
         }
       }
-    }
-  })()
+    },
+  )
 
   try {
     await seeding
@@ -88,155 +83,4 @@ export async function ensureSeedData(): Promise<void> {
   }
 }
 
-// v6: 旧版 schema（仅保留以支持升级路径）
-db.version(6).stores({
-  patients: '++id, status, isArchived, admissionDate',
-  tasks: '++id, patientId, date, status, [patientId+date]',
-  taskTemplates: '++id, key, patientStatus, weekday, surgeryPhase',
-})
-
-// v7: 新事件驱动 schema
-db.version(7).stores({
-  patients: '++id, isArchived, admissionDate',
-  tasks: '++id, patientId, date, [patientId+date]',
-  eventTypes: '++id, key',
-  eventRanges: '++id, eventTypeId',
-  eventRangeTasks: '++id, eventRangeId',
-  patientEvents: '++id, patientId, eventTypeId, [patientId+eventTypeId]',
-}).upgrade(async tx => {
-  const now = Date.now()
-
-  // 1. 插入内置事件模板
-  await seedBuiltInEventTypes(tx)
-
-  // 2. 查找内置事件类型 ID（用于迁移旧患者数据）
-  const surgeryType = await tx.table('eventTypes').where('key').equals('surgery').first()
-  const dischargeType = await tx.table('eventTypes').where('key').equals('discharge').first()
-
-  // 3. 迁移旧患者数据：将 surgery/discharge 转为 PatientEvent
-  const allPatients = await tx.table('patients').toArray()
-  for (const p of allPatients) {
-    // 使用 Dexie 的原始表访问来读写包含旧字段的记录
-    const rawPatient = p as Record<string, unknown>
-
-    // 手术 → PatientEvent
-    if (surgeryType && rawPatient['hasSurgery'] && rawPatient['surgeryDate']) {
-      await tx.table('patientEvents').add({
-        patientId: p.id,
-        eventTypeId: surgeryType.id,
-        eventDate: rawPatient['surgeryDate'] as string,
-        createdAt: now,
-        updatedAt: now,
-      })
-    }
-
-    // 出院 → PatientEvent
-    if (dischargeType && rawPatient['dischargeDate']) {
-      await tx.table('patientEvents').add({
-        patientId: p.id,
-        eventTypeId: dischargeType.id,
-        eventDate: rawPatient['dischargeDate'] as string,
-        createdAt: now,
-        updatedAt: now,
-      })
-    }
-
-    // 清理旧字段（设为 undefined 以从对象存储中移除）
-    await tx.table('patients').update(p.id!, {
-      hasSurgery: undefined,
-      surgeryDate: undefined,
-      preDischargeDate: undefined,
-      dischargeDate: undefined,
-      status: undefined,
-    } as unknown as Partial<Patient>)
-  }
-
-  // 4. 更新旧 tasks：patientStatus → statusLabel
-  const allTasks = await tx.table('tasks').toArray()
-  for (const t of allTasks) {
-    const rawTask = t as Record<string, unknown>
-    await tx.table('tasks').update(t.id!, {
-      statusLabel: (rawTask['patientStatus'] as string) || '',
-      patientStatus: undefined,
-      status: undefined,
-    } as unknown as Partial<Task>)
-  }
-})
-
-// v8: EventRangeTask 字段升级 — weekday→weekdays 多选，日期限定统一到 holidayRule
-db.version(8).stores({
-  patients: '++id, isArchived, admissionDate',
-  tasks: '++id, patientId, date, [patientId+date]',
-  eventTypes: '++id, key',
-  eventRanges: '++id, eventTypeId',
-  eventRangeTasks: '++id, eventRangeId',
-  patientEvents: '++id, patientId, eventTypeId, [patientId+eventTypeId]',
-}).upgrade(async tx => {
-  // 1. 迁移所有 eventRangeTasks：weekday → weekdays
-  const allRangeTasks = await tx.table('eventRangeTasks').toArray()
-  for (const t of allRangeTasks) {
-    const raw = t as Record<string, unknown>
-    const oldWeekday = raw['weekday'] as number | null | undefined
-    await tx.table('eventRangeTasks').update(t.id!, {
-      weekdays: (oldWeekday === null || oldWeekday === undefined) ? [] : [oldWeekday],
-      weekday: undefined,  // 移除旧字段
-    })
-  }
-
-  // 2. 更新内置 admission 事件的 day-1 range 任务
-  const admissionType = await tx.table('eventTypes').where('key').equals('admission').first()
-  if (admissionType) {
-    const ranges = await tx.table('eventRanges')
-      .where('eventTypeId').equals(admissionType.id)
-      .toArray()
-    const day1Range = ranges.find((r: Record<string, unknown>) =>
-      r['dayOffsetStart'] === 1 && r['dayOffsetEnd'] === 1)
-    if (day1Range) {
-      const day1Tasks = await tx.table('eventRangeTasks')
-        .where('eventRangeId').equals(day1Range.id)
-        .toArray()
-      for (const t of day1Tasks) {
-        const raw = t as Record<string, unknown>
-        if (raw['title'] === '写副主任查房') {
-          await tx.table('eventRangeTasks').update(t.id!, {
-            key: 'day1_vice_director_round',
-            isHolidayDependent: true,
-            holidayRule: 'only_workday',
-          })
-        } else if (raw['title'] === '写日常病程') {
-          await tx.table('eventRangeTasks').update(t.id!, {
-            key: 'day1_daily_note',
-          })
-        }
-      }
-    }
-  }
-})
-
-// v9: 插入隐藏的「临时待办」事件类型
-db.version(9).stores({
-  patients: '++id, isArchived, admissionDate',
-  tasks: '++id, patientId, date, [patientId+date]',
-  eventTypes: '++id, key',
-  eventRanges: '++id, eventTypeId',
-  eventRangeTasks: '++id, eventRangeId',
-  patientEvents: '++id, patientId, eventTypeId, [patientId+eventTypeId]',
-}).upgrade(async tx => {
-  const exists = await tx.table('eventTypes').where('key').equals('temporary').first()
-  if (!exists) {
-    await tx.table('eventTypes').add({
-      name: '临时待办',
-      key: 'temporary',
-      icon: '📌',
-      color: 'border-l-gray-400 bg-gray-100',
-      isBuiltIn: true,
-      isActive: true,
-      order: 99,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    })
-  }
-})
-
 export { db }
-export type { ResidentScheduleDB }

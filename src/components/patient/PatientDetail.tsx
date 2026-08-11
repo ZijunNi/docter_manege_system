@@ -58,17 +58,17 @@ export function PatientDetail({ patient }: PatientDetailProps) {
     setShowTempModal(true)
   }
 
-  // 删除临时待办：从 templateKey 提取 PatientEvent ID（格式: "temp:<id>"）
-  const handleDeleteTemporary = async (templateKey: string) => {
+  // 删除临时待办：sourceKey 格式为 "temporary:<patient-event-id>"。
+  const handleDeleteTemporary = async (sourceKey: string) => {
     if (!patient.id) return
-    const match = templateKey.match(/^temp:(\d+)$/)
+    const match = sourceKey.match(/^temporary:(patient-event:.+)$/)
     if (match) {
-      await removeTemporaryTask(Number(match[1]))
+      await removeTemporaryTask(match[1])
     } else {
       // 兜底：按标题匹配（兼容旧数据）
       const tempEvents = events.filter(pe => {
         const et = eventTypes.get(pe.eventTypeId)
-        return et?.key === 'temporary' && pe.customTitle === templateKey && pe.eventDate === today()
+        return et?.key === 'temporary' && pe.customTitle === sourceKey && pe.eventDate === today()
       })
       for (const pe of tempEvents) {
         await removeTemporaryTask(pe.id!)
@@ -85,7 +85,7 @@ export function PatientDetail({ patient }: PatientDetailProps) {
 
   const days = daysAfterAdmission(patient.admissionDate, today())
 
-  const handleToggle = async (taskId: number) => {
+  const handleToggle = async (taskId: string) => {
     await toggleTaskComplete(taskId)
   }
 

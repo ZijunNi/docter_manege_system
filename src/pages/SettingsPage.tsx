@@ -6,34 +6,24 @@ import { db } from '../db'
 import { isDevModeEnabled, setDevModeEnabled, getOverrideDate, setOverrideDate } from '../utils/devmode'
 import { today, realToday } from '../utils/date'
 import { generateDailyTasks } from '../engine/task-generator'
+import { createBackupV3, importBackup, parseBackup, type ImportPreview } from '../services/backup-service'
+import { BUILT_IN_EVENT_IDS } from '../utils/id'
+import Dexie from 'dexie'
+import { LEGACY_DB_NAME } from '../db'
 
 export function SettingsPage() {
   const [showClearDialog, setShowClearDialog] = useState(false)
   const [showBatchImport, setShowBatchImport] = useState(false)
   const [devMode, setDevMode] = useState(() => isDevModeEnabled())
   const [overrideDate, setOverrideDateState] = useState(() => getOverrideDate() || realToday())
+  const [importPreview, setImportPreview] = useState<ImportPreview | null>(null)
+  const [importMode, setImportMode] = useState<'restore' | 'merge'>('restore')
+  const [importResolutions, setImportResolutions] = useState<Record<string, string>>({})
+  const [importing, setImporting] = useState(false)
 
   const handleExport = async () => {
     try {
-      const [patients, tasks, eventTypes, eventRanges, eventRangeTasks, patientEvents] =
-        await Promise.all([
-          db.patients.toArray(),
-          db.tasks.toArray(),
-          db.eventTypes.toArray(),
-          db.eventRanges.toArray(),
-          db.eventRangeTasks.toArray(),
-          db.patientEvents.toArray(),
-        ])
-      const data = {
-        version: 2,
-        exportDate: new Date().toISOString(),
-        patients,
-        tasks,
-        eventTypes,
-        eventRanges,
-        eventRangeTasks,
-        patientEvents,
-      }
+      const data = await createBackupV3()
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -56,58 +46,38 @@ export function SettingsPage() {
       if (!file) return
       try {
         const text = await file.text()
-        const data = JSON.parse(text)
-
-        // patients & tasks — 始终处理（v1 和 v2 都包含）
-        if (data.patients) {
-          for (const p of data.patients) {
-            const exists = await db.patients.get(p.id)
-            if (!exists) await db.patients.add(p)
-          }
-        }
-        if (data.tasks) {
-          for (const t of data.tasks) {
-            const exists = await db.tasks.get(t.id)
-            if (!exists) await db.tasks.add(t)
-          }
-        }
-
-        // 事件表 — v2 新增，向后兼容旧备份
-        if (data.eventTypes?.length) {
-          for (const et of data.eventTypes) {
-            const exists = await db.eventTypes.get(et.id)
-            if (!exists) await db.eventTypes.add(et)
-          }
-        }
-        if (data.eventRanges?.length) {
-          for (const er of data.eventRanges) {
-            const exists = await db.eventRanges.get(er.id)
-            if (!exists) await db.eventRanges.add(er)
-          }
-        }
-        if (data.eventRangeTasks?.length) {
-          for (const ert of data.eventRangeTasks) {
-            const exists = await db.eventRangeTasks.get(ert.id)
-            if (!exists) await db.eventRangeTasks.add(ert)
-          }
-        }
-        if (data.patientEvents?.length) {
-          for (const pe of data.patientEvents) {
-            const exists = await db.patientEvents.get(pe.id)
-            if (!exists) await db.patientEvents.add(pe)
-          }
-        }
-
-        // 导入后刷新任务
-        await generateDailyTasks()
-        alert('导入成功！')
-        window.location.reload()
+        const preview = parseBackup(text)
+        setImportPreview(preview)
+        setImportMode(preview.allowedModes.includes('merge') ? 'merge' : 'restore')
+        setImportResolutions({})
       } catch (err) {
         console.error('Import failed:', err)
         alert('导入失败，请检查文件格式')
       }
     }
     input.click()
+  }
+
+  const commitImport = async () => {
+    if (!importPreview) return
+    if (importPreview.orphans.some(orphan => !importResolutions[orphan.legacyPatientEventId])) {
+      alert('请先完成所有悬空事件映射')
+      return
+    }
+    const countText = Object.entries(importPreview.counts).map(([name, count]) => `${name} ${count}`).join('、')
+    const action = importMode === 'restore' ? '替换当前全部业务数据' : '安全合并到当前数据'
+    if (!window.confirm(`即将${action}：${countText}。是否继续？`)) return
+    setImporting(true)
+    try {
+      const result = await importBackup(importPreview, importMode, importResolutions)
+      alert(`导入完成：新增 ${result.added}，更新 ${result.updated}，跳过 ${result.skipped}，冲突处理 ${result.conflicts}`)
+      window.location.reload()
+    } catch (err) {
+      console.error('Import failed:', err)
+      alert(`导入失败，数据库未提交：${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setImporting(false)
+    }
   }
 
   const handleClearAll = async () => {
@@ -118,8 +88,17 @@ export function SettingsPage() {
       db.eventRanges.clear(),
       db.eventRangeTasks.clear(),
       db.patientEvents.clear(),
+      db.onceTaskCompletions.clear(),
+      db.meta.clear(),
     ])
+    await db.meta.put({ key: 'legacy-migration-complete', value: { clearedAt: Date.now() }, updatedAt: Date.now() })
     window.location.reload()
+  }
+
+  const handleDeleteLegacy = async () => {
+    if (!window.confirm('确定删除旧数据库？删除后将无法用旧库回滚，建议先导出 v3 备份。')) return
+    await Dexie.delete(LEGACY_DB_NAME)
+    alert('旧数据库已删除；当前稳定数据库未受影响。')
   }
 
   const handleDevModeToggle = () => {
@@ -203,11 +182,52 @@ export function SettingsPage() {
         >
           📥 导入数据恢复
         </button>
+        {importPreview && (
+          <div className="bg-white rounded-lg shadow-sm border border-blue-200 p-4">
+            <p className="font-medium text-sm text-gray-900">导入预览 · v{importPreview.sourceVersion}</p>
+            <p className="text-xs text-gray-500 mt-1">
+              {Object.entries(importPreview.counts).map(([name, count]) => `${name} ${count}`).join(' · ')}
+            </p>
+            {importPreview.warnings.map(warning => <p key={warning} className="text-xs text-amber-700 mt-2">⚠️ {warning}</p>)}
+            {importPreview.allowedModes.length > 1 && (
+              <div className="mt-3 flex gap-2">
+                <button onClick={() => setImportMode('merge')} className={`flex-1 py-2 rounded-lg text-sm ${importMode === 'merge' ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}>安全合并</button>
+                <button onClick={() => setImportMode('restore')} className={`flex-1 py-2 rounded-lg text-sm ${importMode === 'restore' ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}>完整恢复</button>
+              </div>
+            )}
+            {importPreview.orphans.map(orphan => (
+              <label key={orphan.legacyPatientEventId} className="block mt-3 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                <span className="block text-sm">{orphan.patientName} · {orphan.eventDate}</span>
+                <span className="block text-xs text-amber-700">旧事件类型 ID {orphan.missingEventTypeId} 已悬空</span>
+                <select
+                  value={importResolutions[orphan.legacyPatientEventId] || ''}
+                  onChange={event => setImportResolutions(current => ({ ...current, [orphan.legacyPatientEventId]: event.target.value }))}
+                  className="mt-2 w-full border border-gray-300 rounded px-2 py-2 text-sm bg-white"
+                >
+                  <option value="">请选择实际类型</option>
+                  <option value={BUILT_IN_EVENT_IDS.admission}>🏥 入院</option>
+                  <option value={BUILT_IN_EVENT_IDS.surgery}>🔪 手术</option>
+                  <option value={BUILT_IN_EVENT_IDS.discharge}>🏠 出院</option>
+                </select>
+              </label>
+            ))}
+            <div className="flex gap-2 mt-3">
+              <button onClick={() => setImportPreview(null)} className="flex-1 py-2 rounded-lg bg-gray-100 text-sm">取消</button>
+              <button disabled={importing} onClick={commitImport} className="flex-1 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-50">{importing ? '导入中…' : '确认导入'}</button>
+            </div>
+          </div>
+        )}
         <button
           onClick={() => setShowClearDialog(true)}
           className="w-full py-3 text-left px-4 bg-white rounded-lg shadow-sm border border-red-100 text-red-600 hover:bg-red-50 transition-colors"
         >
           🗑 清空所有数据
+        </button>
+        <button
+          onClick={handleDeleteLegacy}
+          className="w-full py-3 text-left px-4 bg-white rounded-lg shadow-sm border border-amber-100 text-amber-700 hover:bg-amber-50 transition-colors"
+        >
+          🧹 删除旧版回滚数据库
         </button>
 
         <div className="mt-6 px-4 py-3 bg-white rounded-lg shadow-sm border border-gray-100">

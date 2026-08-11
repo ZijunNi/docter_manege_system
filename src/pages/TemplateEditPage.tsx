@@ -122,7 +122,7 @@ export function TemplateEditPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const isNew = !id || id === 'new'
-  const { detail, loading } = useEventTypeDetail(isNew ? undefined : Number(id))
+  const { detail, loading } = useEventTypeDetail(isNew ? undefined : id)
 
   // ====== EventType 状态 ======
   const [name, setName] = useState('')
@@ -172,11 +172,11 @@ export function TemplateEditPage() {
     if (!name.trim()) return
     setSaving(true)
     try {
-      let eventTypeId: number
+      let eventTypeId: string
 
       if (isNew) {
         // key 自动生成，用户无需关心
-        const autoKey = `custom-${Date.now().toString(36)}`
+        const autoKey = `custom:${crypto.randomUUID()}`
         eventTypeId = await createEventType({
           name: name.trim(),
           key: autoKey,
@@ -187,7 +187,7 @@ export function TemplateEditPage() {
           order: 100,
         })
       } else {
-        eventTypeId = Number(id)
+        eventTypeId = id!
         await updateEventType(eventTypeId, {
           name: name.trim(),
           icon,
@@ -197,11 +197,12 @@ export function TemplateEditPage() {
 
       // 同步 ranges 和 tasks
       const existingRanges = isNew ? [] : await getRangesByEventTypeId(eventTypeId)
-      const keptRangeIds = new Set<number>()
+      const keptRangeIds = new Set<string>()
 
       for (const range of ranges) {
         const rangeData: Omit<EventRange, 'id'> = {
           eventTypeId,
+          key: range.data.key || `range-${crypto.randomUUID()}`,
           name: range.data.name || '',
           statusLabel: range.data.name || '',   // 自动取名称，不再让用户单独填写
           color,        // 所有范围统一使用模板颜色
@@ -211,7 +212,7 @@ export function TemplateEditPage() {
           order: range.data.order || 0,
         }
 
-        let rangeId: number
+        let rangeId: string
         if (range.tempId.startsWith('existing-')) {
           rangeId = range.data.id!
           await updateEventRange(rangeId, rangeData)
@@ -222,12 +223,12 @@ export function TemplateEditPage() {
 
         // 同步 tasks
         const existingTasks = isNew ? [] : await getTasksByRangeId(rangeId)
-        const keptTaskIds = new Set<number>()
+        const keptTaskIds = new Set<string>()
 
         for (const task of range.tasks) {
           const taskData: Omit<EventRangeTask, 'id'> = {
             eventRangeId: rangeId,
-            key: task.data.key || undefined,
+            key: task.data.key || `task-${crypto.randomUUID()}`,
             title: task.data.title || '',
             description: task.data.description || undefined,
             category: task.data.category || TaskCategory.OTHER,
@@ -274,7 +275,7 @@ export function TemplateEditPage() {
 
   const handleDelete = async () => {
     if (isNew || !id) return
-    await deleteEventType(Number(id))
+    await deleteEventType(id)
     await generateDailyTasks()
     navigate('/templates')
   }

@@ -50,7 +50,7 @@ export interface EventTypeDetail {
   }>
 }
 
-export function useEventTypeDetail(id: number | undefined): {
+export function useEventTypeDetail(id: string | undefined): {
   detail: EventTypeDetail | undefined
   loading: boolean
 } {

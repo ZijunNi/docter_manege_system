@@ -2,6 +2,7 @@ import { db } from '../db'
 import type { Patient, PatientInput } from '../types/patient'
 import { today } from '../utils/date'
 import { generateTasksForPatient, generateDailyTasks } from '../engine/task-generator'
+import { createEntityId } from '../utils/id'
 
 export async function getAllPatients(): Promise<Patient[]> {
   return db.patients
@@ -19,14 +20,16 @@ export async function getArchivedPatients(): Promise<Patient[]> {
     .sortBy('createdAt')
 }
 
-export async function getPatientById(id: number): Promise<Patient | undefined> {
+export async function getPatientById(id: string): Promise<Patient | undefined> {
   return db.patients.get(id)
 }
 
 export async function addPatient(input: PatientInput): Promise<Patient> {
   const now = Date.now()
 
-  const id = await db.patients.add({
+  const id = createEntityId('patient')
+  await db.patients.add({
+    id,
     name: input.name,
     bedNumber: input.bedNumber,
     admissionDate: input.admissionDate,
@@ -45,7 +48,7 @@ export async function addPatient(input: PatientInput): Promise<Patient> {
   return patient
 }
 
-export async function updatePatient(id: number, input: PatientInput): Promise<void> {
+export async function updatePatient(id: string, input: PatientInput): Promise<void> {
   const now = Date.now()
   await db.patients.update(id, {
     name: input.name,
@@ -58,14 +61,16 @@ export async function updatePatient(id: number, input: PatientInput): Promise<vo
   await generateDailyTasks()
 }
 
-export async function deletePatient(id: number): Promise<void> {
-  await db.patients.delete(id)
-  // 级联删除关联的任务和事件
-  await db.tasks.where('patientId').equals(id).delete()
-  await db.patientEvents.where('patientId').equals(id).delete()
+export async function deletePatient(id: string): Promise<void> {
+  await db.transaction('rw', db.patients, db.tasks, db.patientEvents, db.onceTaskCompletions, async () => {
+    await db.patients.delete(id)
+    await db.tasks.where('patientId').equals(id).delete()
+    await db.patientEvents.where('patientId').equals(id).delete()
+    await db.onceTaskCompletions.where('patientId').equals(id).delete()
+  })
 }
 
-export async function archivePatient(id: number): Promise<void> {
+export async function archivePatient(id: string): Promise<void> {
   const now = Date.now()
   await db.patients.update(id, {
     isArchived: 1,
@@ -73,7 +78,7 @@ export async function archivePatient(id: number): Promise<void> {
   })
 }
 
-export async function unarchivePatient(id: number): Promise<void> {
+export async function unarchivePatient(id: string): Promise<void> {
   const now = Date.now()
   await db.patients.update(id, {
     isArchived: 0,

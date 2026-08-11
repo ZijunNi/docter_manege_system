@@ -4,7 +4,7 @@ import type { ActiveStatus } from '../types/event'
 import { getActiveStatuses, getPrimaryStatus } from '../engine/state-machine'
 import { today } from '../utils/date'
 
-export function usePatientStatuses(patientId: number): {
+export function usePatientStatuses(patientId: string): {
   statuses: ActiveStatus[]
   primary: ActiveStatus | null
   loading: boolean
@@ -36,9 +36,9 @@ export function usePatientStatuses(patientId: number): {
   }
 }
 
-export function useAllPatientStatuses(patientIds: number[]): {
-  statusMap: Map<number, ActiveStatus[]>
-  primaryMap: Map<number, ActiveStatus | null>
+export function useAllPatientStatuses(patientIds: string[]): {
+  statusMap: Map<string, ActiveStatus[]>
+  primaryMap: Map<string, ActiveStatus | null>
   loading: boolean
 } {
   const data = useLiveQuery(
@@ -51,8 +51,8 @@ export function useAllPatientStatuses(patientIds: number[]): {
       ])
 
       const date = today()
-      const statusMap = new Map<number, ActiveStatus[]>()
-      const primaryMap = new Map<number, ActiveStatus | null>()
+      const statusMap = new Map<string, ActiveStatus[]>()
+      const primaryMap = new Map<string, ActiveStatus | null>()
 
       for (const patient of patients) {
         if (!patient.id) continue

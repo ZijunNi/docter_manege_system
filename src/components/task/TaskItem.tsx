@@ -7,7 +7,7 @@ import { cn } from '../../utils/cn'
 interface TaskItemProps {
   task: Task
   onToggle: () => void
-  onDeleteTemporary?: (templateKey: string) => void
+  onDeleteTemporary?: (sourceKey: string) => void
 }
 
 export function TaskItem({ task, onToggle, onDeleteTemporary }: TaskItemProps) {
@@ -49,7 +49,7 @@ export function TaskItem({ task, onToggle, onDeleteTemporary }: TaskItemProps) {
         <button
           onClick={e => {
             e.stopPropagation()
-            onDeleteTemporary(task.templateKey || task.title)
+            onDeleteTemporary(task.sourceKey || task.title)
           }}
           className="text-gray-400 hover:text-red-500 text-sm font-bold px-1 flex-shrink-0"
           title="删除临时待办"

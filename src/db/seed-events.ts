@@ -1,20 +1,29 @@
 import type { EventType, EventRange, EventRangeTask } from '../types/event'
 import { TaskCategory, HolidayRule } from '../types/enums'
+import { BUILT_IN_EVENT_IDS, stableRangeId, stableRangeTaskId } from '../utils/id'
 
 // ====== 辅助函数：构建完整的事件类型（含 ranges + tasks） ======
 
-interface SeedEventType {
+export interface SeedEventType {
+  eventType: Omit<EventType, 'createdAt' | 'updatedAt'>
+  ranges: Array<{
+    range: Omit<EventRange, 'eventTypeId'>
+    tasks: Omit<EventRangeTask, 'eventRangeId'>[]
+  }>
+}
+
+interface SeedEventTypeInput {
   eventType: Omit<EventType, 'id' | 'createdAt' | 'updatedAt'>
   ranges: Array<{
-    range: Omit<EventRange, 'id' | 'eventTypeId'>
-    tasks: Omit<EventRangeTask, 'id' | 'eventRangeId'>[]
+    range: Omit<EventRange, 'id' | 'eventTypeId' | 'key'>
+    tasks: Array<Omit<EventRangeTask, 'id' | 'eventRangeId' | 'key'> & { key?: string }>
   }>
 }
 
 /**
  * 所有内置事件模板的种子数据
  */
-export const seedEventTypes: SeedEventType[] = [
+const rawSeedEventTypes: SeedEventTypeInput[] = [
   // ========================================
   // 入院事件
   // ========================================
@@ -240,3 +249,42 @@ export const seedEventTypes: SeedEventType[] = [
     ranges: [],  // 无预定义 range，由生成器特殊处理
   },
 ]
+
+const RANGE_KEYS: Record<string, string[]> = {
+  admission: ['day-0', 'day-1', 'inpatient'],
+  surgery: ['preparation', 'day-before', 'day-0', 'recovery'],
+  discharge: ['preparation', 'day-0'],
+  temporary: [],
+}
+
+/**
+ * 内置模板的 ID/key 只由代码语义决定，标题和展示名称改变不会影响关联。
+ * 未显式命名的任务使用固定顺序 key；发布后不得重排或复用这些 key。
+ */
+export const seedEventTypes: SeedEventType[] = rawSeedEventTypes.map(seed => {
+  const eventKey = seed.eventType.key
+  const eventTypeId = BUILT_IN_EVENT_IDS[eventKey as keyof typeof BUILT_IN_EVENT_IDS]
+  if (!eventTypeId) throw new Error(`未知的内置事件 key: ${eventKey}`)
+
+  return {
+    eventType: { ...seed.eventType, id: eventTypeId },
+    ranges: seed.ranges.map((rangeSeed, rangeIndex) => {
+      const rangeKey = RANGE_KEYS[eventKey]?.[rangeIndex] || `range-${rangeIndex + 1}`
+      return {
+        range: {
+          ...rangeSeed.range,
+          id: stableRangeId(eventKey, rangeKey),
+          key: rangeKey,
+        },
+        tasks: rangeSeed.tasks.map((task, taskIndex) => {
+          const taskKey = task.key || `task-${taskIndex + 1}`
+          return {
+            ...task,
+            id: stableRangeTaskId(eventKey, rangeKey, taskKey),
+            key: taskKey,
+          }
+        }),
+      }
+    }),
+  }
+})

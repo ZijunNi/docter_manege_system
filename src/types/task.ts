@@ -1,8 +1,8 @@
 import type { TaskCategory } from './enums'
 
 export interface Task {
-  id?: number
-  patientId: number
+  id: string
+  patientId: string
   patientName: string
   date: string
   title: string
@@ -12,6 +12,21 @@ export interface Task {
   isCompleted: boolean
   completedAt?: number
   createdAt: number
+  updatedAt: number
   order: number
-  templateKey?: string
+  sourceKey: string
+  sourceEventId?: string
+  sourceTemplateTaskId?: string
+  isOnceOnly: boolean
+  isHistoricalImport?: boolean
+}
+
+export interface OnceTaskCompletion {
+  id: string
+  patientId: string
+  sourceKey: string
+  sourceEventId?: string
+  sourceTemplateTaskId?: string
+  completedDate: string
+  completedAt: number
 }

@@ -1,5 +1,5 @@
 export interface Patient {
-  id?: number
+  id: string
   name: string
   bedNumber?: string
   admissionDate: string

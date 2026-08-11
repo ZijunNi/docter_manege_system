@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { PatientInput } from '../../types/patient'
 import type { EventType, PatientEvent } from '../../types/event'
 import { DatePicker } from '../ui/DatePicker'
@@ -7,7 +7,7 @@ import { useActiveEventTypes } from '../../hooks/useEventTypes'
 import { usePatientEvents } from '../../hooks/usePatientEvents'
 
 export interface EventAssignment {
-  eventTypeId: number
+  eventTypeId: string
   eventDate: string
 }
 
@@ -50,6 +50,17 @@ export function PatientForm({
     }
     return dates
   })
+
+  // 事件类型来自 IndexedDB 异步查询；编辑页需在模板到达后再回填已有日期。
+  useEffect(() => {
+    if (!initialEvents?.length || !activeTypes.length) return
+    const dates: Record<string, string> = {}
+    for (const pe of initialEvents) {
+      const eventType = activeTypes.find(type => type.id === pe.eventTypeId)
+      if (eventType) dates[eventType.key] = pe.eventDate
+    }
+    setEventDates(dates)
+  }, [initialEvents, activeTypes])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()

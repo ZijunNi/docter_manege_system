@@ -42,7 +42,7 @@ export function useArchivedPatients(): {
   }
 }
 
-export function usePatient(id: number): {
+export function usePatient(id: string): {
   patient: Patient | undefined
   loading: boolean
 } {

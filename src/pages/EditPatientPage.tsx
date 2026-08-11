@@ -15,8 +15,9 @@ import { generateDailyTasks } from '../engine/task-generator'
 export function EditPatientPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const { patient, loading: patientLoading } = usePatient(Number(id))
-  const { events: currentEvents, loading: eventsLoading } = usePatientEvents(Number(id))
+  const patientId = id || ''
+  const { patient, loading: patientLoading } = usePatient(patientId)
+  const { events: currentEvents, loading: eventsLoading } = usePatientEvents(patientId)
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
@@ -49,8 +50,6 @@ export function EditPatientPage() {
     setError(null)
     setSubmitting(true)
     try {
-      const patientId = Number(id)
-
       // 更新患者基本信息
       await updatePatient(patientId, data)
 

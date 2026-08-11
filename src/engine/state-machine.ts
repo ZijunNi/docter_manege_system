@@ -37,6 +37,7 @@ export function getActiveStatuses(
         statuses.push({
           eventRangeId: range.id!,
           eventTypeId: admissionType.id!,
+          sourceEventId: `admission:${patient.id}`,
           eventTypeName: admissionType.name,
           eventTypeIcon: admissionType.icon,
           eventTypeKey: admissionType.key,
@@ -72,6 +73,7 @@ export function getActiveStatuses(
         statuses.push({
           eventRangeId: range.id!,
           eventTypeId: et.id!,
+          sourceEventId: pe.id,
           eventTypeName: et.name,
           eventTypeIcon: et.icon,
           eventTypeKey: et.key,

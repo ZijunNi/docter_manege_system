@@ -16,7 +16,7 @@ export function PatientList({ patients, loading, emptyMessage = '暂无患者' }
 
   // 计算每个患者的任务完成数
   const taskStats = useMemo(() => {
-    const map = new Map<number, { total: number; completed: number }>()
+    const map = new Map<string, { total: number; completed: number }>()
     for (const t of allTasks) {
       const entry = map.get(t.patientId) || { total: 0, completed: 0 }
       entry.total++
