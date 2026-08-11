@@ -6,10 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build --base=/docter_manege_system/",
-    "build:local": "vite build --base=/",
+    "build:local": "tsc -b && vite build --base=/ --outDir=dist-local",
     "lint": "oxlint",
     "preview": "vite preview",
-    "preview:local": "npm run build:local && vite preview --host",
+    "preview:local": "npm run build:local && vite preview --host --outDir=dist-local --base=/",
     "predeploy": "npm run build",
     "deploy": "gh-pages -d dist",
     "build:capacitor": "vite build --base=./",

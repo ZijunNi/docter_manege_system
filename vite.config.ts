@@ -57,7 +57,9 @@ export default defineConfig({
         ],
       },
       devOptions: {
-        enabled: true,
+        // 开发服务器依赖 HMR，不注册 Service Worker，避免旧缓存覆盖最新源码。
+        // PWA/离线行为统一使用 npm run preview:local 验证。
+        enabled: false,
       },
     }),
   ],

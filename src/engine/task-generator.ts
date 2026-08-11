@@ -9,6 +9,52 @@ import { isDayBeforeHoliday, isNonWorkday, isWorkday } from './holiday-utils'
 // 模块级互斥锁，防止 generateDailyTasks 被并发调用
 let refreshLock: Promise<void> | null = null
 
+interface CompletedOnceRecord {
+  key: string
+  completedDate?: string
+  completedAt?: number
+}
+
+function rangeTaskKey(task: Pick<EventRangeTask, 'eventRangeId' | 'title'>): string {
+  return `range:${task.eventRangeId}:${task.title}`
+}
+
+/**
+ * 兼容旧版 string[]。旧记录没有日期且可能正是被旧逻辑误删的当天任务，
+ * 因此首次迁移为目标日期已完成，让仍处于活跃 range 的任务恢复显示。
+ */
+function readCompletedOnceRecords(
+  storageKey: string,
+  targetDate: string
+): Map<string, CompletedOnceRecord> {
+  const records = new Map<string, CompletedOnceRecord>()
+
+  try {
+    const raw: unknown = JSON.parse(localStorage.getItem(storageKey) || '[]')
+    if (!Array.isArray(raw)) return records
+
+    for (const item of raw) {
+      if (typeof item === 'string') {
+        records.set(item, { key: item, completedDate: targetDate })
+      } else if (item && typeof item === 'object' && 'key' in item && typeof item.key === 'string') {
+        records.set(item.key, {
+          key: item.key,
+          completedDate: 'completedDate' in item && typeof item.completedDate === 'string'
+            ? item.completedDate
+            : undefined,
+          completedAt: 'completedAt' in item && typeof item.completedAt === 'number'
+            ? item.completedAt
+            : undefined,
+        })
+      }
+    }
+  } catch {
+    // 损坏的旧记录不应阻止当天任务生成。
+  }
+
+  return records
+}
+
 /**
  * 每日任务生成：为所有未归档患者生成今日任务
  * 内置互斥锁，并发调用时只会执行一次
@@ -88,26 +134,55 @@ async function generateTasksForPatientInternal(
     patient, patientEvents, activeEventTypes, eventRanges, date
   )
 
-  // 查询该患者历史上已完成的一次性任务
-  // 合并两个来源：DB 中现存记录 + localStorage 持久化记录
-  // localStorage 用于防止"删旧写新"后历史记录丢失导致已完成任务复活
+  // 查询该患者全部任务，同时取得当天任务以保留完成状态。
+  // 一次性任务只在“此前日期已完成”时过滤，完成当天必须继续显示。
   const storageKey = `completedOnce:${patient.id}`
-  const storedKeys: string[] = JSON.parse(localStorage.getItem(storageKey) || '[]')
-  const persistedOnceKeys = new Set(storedKeys)
-
   const allPatientTasks = await db.tasks
     .where('patientId')
     .equals(patient.id!)
     .toArray()
+
+  const existingTasks = allPatientTasks.filter(t => t.date === date)
+  const onceTemplateKeys = new Set(
+    allEventRangeTasks.filter(t => t.isOnceOnly).map(rangeTaskKey)
+  )
+  const completedOnceRecords = readCompletedOnceRecords(storageKey, date)
+
+  // 数据库任务带有准确日期，优先用它升级/修正 localStorage 中的旧记录。
   for (const t of allPatientTasks) {
-    if (t.isCompleted && t.templateKey) {
-      persistedOnceKeys.add(t.templateKey)
+    if (t.isCompleted && t.templateKey && onceTemplateKeys.has(t.templateKey)) {
+      const existing = completedOnceRecords.get(t.templateKey)
+      if (!existing?.completedDate || t.date < existing.completedDate) {
+        completedOnceRecords.set(t.templateKey, {
+          key: t.templateKey,
+          completedDate: t.date,
+          completedAt: t.completedAt,
+        })
+      }
+    }
+  }
+
+  // 同日取消勾选时撤销该日完成记录，防止下一次刷新又把任务过滤掉。
+  for (const t of existingTasks) {
+    if (!t.isCompleted && t.templateKey && onceTemplateKeys.has(t.templateKey)) {
+      const record = completedOnceRecords.get(t.templateKey)
+      if (record?.completedDate === date) {
+        completedOnceRecords.delete(t.templateKey)
+      }
+    }
+  }
+
+  const completedBeforeDateKeys = new Set<string>()
+  for (const record of completedOnceRecords.values()) {
+    // 只有严格早于目标日完成的一次性任务才过滤，完成当天继续显示并计入进度。
+    if (!record.completedDate || record.completedDate < date) {
+      completedBeforeDateKeys.add(record.key)
     }
   }
 
   // 匹配任务：每个活跃 status 贡献其 range 下的所有 tasks
   const matchedTasks = matchRangeTasks(
-    date, activeStatuses, allEventRangeTasks, persistedOnceKeys
+    date, activeStatuses, allEventRangeTasks, completedBeforeDateKeys
   )
 
   // 处理临时待办事件：无预定义 range，直接从 PatientEvent 的自定义字段生成 Task
@@ -129,36 +204,45 @@ async function generateTasksForPatientInternal(
     }
   }
 
-  // 查询今日已有任务（用于保留完成状态）
-  const existingTasks = await db.tasks
-    .where('[patientId+date]')
-    .equals([patient.id!, date])
-    .toArray()
-
-  const completedMap = new Map<string, boolean>()
+  // 优先按稳定 templateKey 保留状态；旧数据没有 key 时按标题兜底。
+  const existingByKey = new Map<string, Task>()
+  const existingByTitle = new Map<string, Task>()
   for (const t of existingTasks) {
-    completedMap.set(t.title, t.isCompleted)
+    if (t.templateKey) existingByKey.set(t.templateKey, t)
+    existingByTitle.set(t.title, t)
   }
 
   // 生成模板 Task 记录
-  const newTasks: Task[] = matchedTasks.map(({ task, statusLabel }, index) => ({
-    patientId: patient.id!,
-    patientName: patient.name,
-    date,
-    title: task.title,
-    description: task.description,
-    category: task.category,
-    statusLabel,
-    isCompleted: completedMap.get(task.title) || false,
-    completedAt: completedMap.get(task.title) ? Date.now() : undefined,
-    createdAt: Date.now(),
-    order: index,
-    templateKey: task.isOnceOnly ? `range:${task.eventRangeId}:${task.title}` : undefined,
-  }))
+  const newTasks: Task[] = matchedTasks.map(({ task, statusLabel }, index) => {
+    const templateKey = rangeTaskKey(task)
+    const existing = existingByKey.get(templateKey) || existingByTitle.get(task.title)
+    const completedRecord = completedOnceRecords.get(templateKey)
+    const completedFromTodayRecord = completedRecord?.completedDate === date
+    const isCompleted = existing?.isCompleted ?? completedFromTodayRecord
+
+    return {
+      patientId: patient.id!,
+      patientName: patient.name,
+      date,
+      title: task.title,
+      description: task.description,
+      category: task.category,
+      statusLabel,
+      isCompleted: Boolean(isCompleted),
+      completedAt: isCompleted ? (existing?.completedAt || completedRecord?.completedAt || Date.now()) : undefined,
+      createdAt: existing?.createdAt || Date.now(),
+      order: index,
+      // 所有模板任务都保存稳定 key，避免不同 range 的同名任务共享完成状态。
+      templateKey,
+    }
+  })
 
   // 追加临时待办 Task
   for (let ti = 0; ti < temporaryTasks.length; ti++) {
     const tt = temporaryTasks[ti]
+    const templateKey = tt._peId ? `temp:${tt._peId}` : undefined
+    const existing = (templateKey ? existingByKey.get(templateKey) : undefined)
+      || existingByTitle.get(tt.title)
     newTasks.push({
       patientId: patient.id!,
       patientName: patient.name,
@@ -167,25 +251,16 @@ async function generateTasksForPatientInternal(
       description: tt.description,
       category: tt.category as Task['category'],
       statusLabel: tt.statusLabel,
-      isCompleted: completedMap.get(tt.title) || false,
-      completedAt: completedMap.get(tt.title) ? Date.now() : undefined,
-      createdAt: Date.now(),
+      isCompleted: existing?.isCompleted || false,
+      completedAt: existing?.isCompleted ? existing.completedAt : undefined,
+      createdAt: existing?.createdAt || Date.now(),
       order: tt.order,
-      templateKey: tt._peId ? `temp:${tt._peId}` : undefined,
+      templateKey,
     })
   }
 
   // 原子替换：删除旧任务，写入新任务
   if (existingTasks.length > 0) {
-    // 在删除前，将已完成的一次性任务 key 持久化到 localStorage
-    // 防止下一轮运行时因 DB 记录被删导致"遗忘"已完成状态
-    for (const t of existingTasks) {
-      if (t.isCompleted && t.templateKey && t.templateKey.startsWith('range:')) {
-        persistedOnceKeys.add(t.templateKey)
-      }
-    }
-    localStorage.setItem(storageKey, JSON.stringify([...persistedOnceKeys]))
-
     await db.tasks
       .where('[patientId+date]')
       .equals([patient.id!, date])
@@ -195,6 +270,8 @@ async function generateTasksForPatientInternal(
   if (newTasks.length > 0) {
     await db.tasks.bulkAdd(newTasks)
   }
+
+  localStorage.setItem(storageKey, JSON.stringify([...completedOnceRecords.values()]))
 
   return newTasks
 }
@@ -220,7 +297,7 @@ function matchRangeTasks(
     for (const task of rangeTasks) {
       // 1. 过滤一次性已完成任务
       if (task.isOnceOnly) {
-        const onceKey = `range:${task.eventRangeId}:${task.title}`
+        const onceKey = rangeTaskKey(task)
         if (completedOnceKeys.has(onceKey)) continue
       }
 

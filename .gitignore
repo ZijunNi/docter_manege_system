@@ -1,4 +1,6 @@
 node_modules
 dist
+dist-local
 .devmode.json
 android
+test_data/
