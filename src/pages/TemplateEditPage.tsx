@@ -72,12 +72,26 @@ function modeToOffset(mode: OffsetMode, days: number): number | null {
 }
 
 /** 偏移量选择器：不限 / 当日 / 前N天 / 后N天 */
-function OffsetField({ label, value, onChange }: {
+function OffsetField({ label, value, onChange, onInvalid }: {
   label: string
   value: number | null | undefined
   onChange: (v: number | null) => void
+  onInvalid?: (invalid: boolean) => void
 }) {
   const { mode, days } = offsetToMode(value)
+  const [draft, setDraft] = useState(String(days))
+
+  // 父组件提交值变化（切换模式 / 外部重置）时，同步输入框
+  useEffect(() => {
+    setDraft(String(days))
+  }, [days])
+
+  // 只在「前/后」模式下才有天数合法性可言；空/0/非法都视为 invalid
+  const invalid = (mode === 'before' || mode === 'after') && !(parseInt(draft, 10) > 0)
+
+  useEffect(() => {
+    onInvalid?.(invalid)
+  }, [invalid, onInvalid])
 
   return (
     <div className="flex flex-col gap-1">
@@ -103,11 +117,14 @@ function OffsetField({ label, value, onChange }: {
             <input
               type="number"
               min={1}
-              value={days}
+              value={draft}
               onChange={e => {
-                const d = parseInt(e.target.value) || 1
-                onChange(modeToOffset(mode, d > 0 ? d : 1))
+                const text = e.target.value
+                setDraft(text)
+                const d = parseInt(text, 10)
+                if (d > 0) onChange(modeToOffset(mode, d))
               }}
+              onFocus={e => e.target.select()}
               className="w-12 px-1.5 py-1.5 border border-gray-300 rounded text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
             <span className="text-xs text-gray-500 flex-shrink-0">天</span>
@@ -140,8 +157,26 @@ export function TemplateEditPage() {
     expanded: boolean
   }>>([])
 
+  // ====== 非法天数（前/后模式下空值或 <1） ======
+  const [invalidOffsets, setInvalidOffsets] = useState<Record<string, boolean>>({})
+
+  const setRangeOffsetInvalid = (rangeTempId: string, field: 'start' | 'end', invalid: boolean) => {
+    const key = `${rangeTempId}:${field}`
+    setInvalidOffsets(prev => {
+      const current = Boolean(prev[key])
+      if (current === invalid) return prev   // 无变化返回原对象，避免子组件 effect 触发无限重渲染
+      const next = { ...prev }
+      if (invalid) next[key] = true
+      else delete next[key]
+      return next
+    })
+  }
+
   // ====== 验证 ======
   const rangeErrors = ranges.map(range => {
+    if (invalidOffsets[`${range.tempId}:start`] || invalidOffsets[`${range.tempId}:end`]) {
+      return '请填写有效的天数（≥1）'
+    }
     const start = range.data.dayOffsetStart ?? UNBOUNDED_START
     const end = range.data.dayOffsetEnd ?? UNBOUNDED_END
     if (start > end) return '开始时间不能晚于结束时间'
@@ -501,11 +536,13 @@ export function TemplateEditPage() {
                         label="开始时间"
                         value={range.data.dayOffsetStart}
                         onChange={v => updateRangeField(range.tempId, 'dayOffsetStart', v)}
+                        onInvalid={inv => setRangeOffsetInvalid(range.tempId, 'start', inv)}
                       />
                       <OffsetField
                         label="结束时间"
                         value={range.data.dayOffsetEnd}
                         onChange={v => updateRangeField(range.tempId, 'dayOffsetEnd', v)}
+                        onInvalid={inv => setRangeOffsetInvalid(range.tempId, 'end', inv)}
                       />
                     </div>
                     {rangeErrors[rangeIdx] && (
