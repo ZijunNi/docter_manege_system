@@ -77,10 +77,18 @@ export function PatientDetail({ patient }: PatientDetailProps) {
     await generateTasksForPatient(patient)
   }
 
-  // 非今天的临时待办
-  const nonTodayTempEvents = events.filter(pe => {
+  // 今日已完成任务对应的临时事件 ID（临时任务 sourceEventId 指向 PatientEvent.id）
+  const completedTempEventIds = new Set(
+    tasks.filter(t => t.isCompleted && t.sourceEventId).map(t => t.sourceEventId!)
+  )
+
+  // 未来且尚未完成的临时待办
+  const futureTempEvents = events.filter(pe => {
     const et = eventTypes.get(pe.eventTypeId)
-    return et?.key === 'temporary' && pe.eventDate !== today()
+    if (et?.key !== 'temporary') return false
+    if (pe.eventDate <= today()) return false          // 只要未来，排除今天和已过期
+    if (completedTempEventIds.has(pe.id)) return false // 安全网：未来事件一般无任务，恒不命中
+    return true
   }).sort((a, b) => a.eventDate.localeCompare(b.eventDate))
 
   const days = daysAfterAdmission(patient.admissionDate, today())
@@ -136,6 +144,10 @@ export function PatientDetail({ patient }: PatientDetailProps) {
           {events.map(pe => {
             const et = eventTypes.get(pe.eventTypeId)
             if (!et) return null
+            if (et.key === 'temporary') {
+              if (pe.eventDate !== today()) return null
+              if (completedTempEventIds.has(pe.id)) return null
+            }
             return (
               <span key={pe.id}>
                 {et.icon} {et.name}: {formatDisplayDate(pe.eventDate)}
@@ -217,14 +229,14 @@ export function PatientDetail({ patient }: PatientDetailProps) {
         )}
       </div>
 
-      {/* 非今天的临时待办 */}
-      {nonTodayTempEvents.length > 0 && (
+      {/* 未来的临时待办 */}
+      {futureTempEvents.length > 0 && (
         <div className="py-2 border-t border-gray-200">
           <div className="px-4 py-2">
             <h3 className="text-sm font-semibold text-gray-500">其他日期临时待办</h3>
           </div>
           <div className="divide-y divide-gray-100">
-            {nonTodayTempEvents.map(pe => (
+            {futureTempEvents.map(pe => (
               <div key={pe.id} className="flex items-center gap-3 px-4 py-2.5 bg-white">
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-gray-700">{pe.customTitle}</p>
